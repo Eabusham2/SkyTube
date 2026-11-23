@@ -36,6 +36,25 @@ final class SkyPlacementChecks {
         bridge.expect("clear sky", true, false);
         bridge.checkManualReversal(mod);
 
+        // Keep the three fluid sheets in place while the client renders and samples each one.
+        world.getServer().runCommand("tick freeze");
+        world.getServer().runCommand("fill -10 178 -10 10 178 10 lava");
+        waitForBlock(context, world, 178, Blocks.LAVA);
+        check(context, mod, "lava-roof", 0, 0, false);
+        bridge.expect("source lava roof", false, true);
+        world.getServer().runCommand("fill -10 178 -10 10 178 10 air");
+        world.getServer().runCommand("fill -10 178 -10 10 178 10 water");
+        waitForBlock(context, world, 178, Blocks.WATER);
+        context.waitFor(mc -> mod.renderer().visibleFraction() == 1, 200);
+        bridge.expect("transparent water roof", true, false);
+        world.getServer().runCommand("fill -10 178 -10 10 178 10 air");
+        world.getServer().runCommand("fill -10 178 -10 10 178 10 lava[level=4]");
+        waitForBlock(context, world, 178, Blocks.LAVA);
+        check(context, mod, "flowing-lava-roof", 0, 0, false);
+        bridge.expect("flowing lava roof", false, true);
+        world.getServer().runCommand("fill -10 178 -10 10 178 10 air");
+        world.getServer().runCommand("tick unfreeze");
+
         world.getServer().runCommand("fill -18 270 -18 18 270 18 stone");
         waitForBlock(context, world, 270, Blocks.STONE);
         check(context, mod, "beyond-rendered-sections", 1, 1, true);

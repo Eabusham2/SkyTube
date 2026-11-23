@@ -276,6 +276,49 @@ test("a pause acknowledgement before first play preserves the cue until an expli
     assert.equal(f.created.at(-1).source.startSeconds, 0);
 });
 
+test("rapid rewinds accumulate while the iframe reports earlier positions, including during a provider change", () => {
+    // The old clock can still advance, or the first seek can land before the second.
+    for (const reported of [100.24, 90.12]) {
+        const f = fixture();
+        f.open(); f.state(1);
+        f.player.seekTo = seconds => f.calls.push(["seek", seconds]);
+        f.command("seekBy", -10); f.command("seekBy", -10);
+        f.setPosition(reported); f.advance(240);
+        f.command("seekBy", -10); f.command("provider", "youtube");
+        assert.deepEqual(f.calls.filter(c => c[0] === "seek"), [["seek", 90], ["seek", 80], ["seek", 70]]);
+        assert.equal(f.created.at(-1).source.startSeconds, 70);
+    }
+});
+
+for (const [state, label] of [[3, "buffering"], [2, "paused"]]) {
+    test("a " + label + " state can still report clock progress from before a rewind", () => {
+        const f = fixture();
+        f.open(); f.state(1);
+        f.player.seekTo = seconds => f.calls.push(["seek", seconds]);
+        f.command("seekBy", -10);
+        f.state(state); f.setPosition(100.12); f.advance(240);
+        f.command("seekBy", -10); f.command("provider", "youtube");
+        assert.deepEqual(f.calls.filter(c => c[0] === "seek"), [["seek", 90], ["seek", 80]]);
+        assert.equal(f.created.at(-1).source.startSeconds, 80);
+    });
+}
+
+test("acknowledged or abandoned seeks yield to iframe scrubs and a new playlist item", () => {
+    const f = fixture();
+    f.setList([A, A], 0); f.open({playlistId: "PLfoo"}); f.state(1);
+    f.player.seekTo = seconds => f.calls.push(["seek", seconds]);
+    f.command("seekBy", -10);
+    f.setPosition(90); f.advance(120); // Acknowledge the native rewind before scrubbing back to 100.
+    f.setPosition(100); f.command("seekBy", -10);
+    f.setPosition(40); f.command("seekBy", -10); // Native seek still pending when the iframe user scrubs.
+    f.setList([A, A], 1); f.advance(120); // Even a second copy of the same video is a new item.
+    f.command("seekBy", -10);
+    assert.deepEqual(f.calls.filter(c => c[0] === "seek"), [["seek", 90], ["seek", 90], ["seek", 30], ["seek", 30]]);
+    f.advance(3000); // A service that ignores the seek must eventually regain authority.
+    f.command("provider", "youtube");
+    assert.equal(f.created.at(-1).source.startSeconds, 40);
+});
+
 test("after playback an iframe scrub to zero is the position for rewind and host changes", () => {
     function scrubPausedVideoToZero() {
         const f = fixture();

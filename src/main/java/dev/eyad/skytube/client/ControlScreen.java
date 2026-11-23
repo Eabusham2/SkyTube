@@ -191,8 +191,9 @@ public final class ControlScreen extends Screen {
         }
         displayedTarget = target;
         openVideo.active = known;
-        for (Button button : accountWrites) button.active = known;
-        boolean canSignIn = !mod.account().isSignedIn();
+        boolean connected = mod.account().isSignedIn();
+        for (Button button : accountWrites) button.active = known && connected;
+        boolean canSignIn = !connected;
         if (signIn.active != canSignIn) {
             signIn.active = canSignIn;
             signIn.setMessage(Component.literal(canSignIn ? "Sign in" : "Connected"));

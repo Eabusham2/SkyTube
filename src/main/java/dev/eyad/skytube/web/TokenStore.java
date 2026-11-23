@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
@@ -43,13 +44,26 @@ final class TokenStore {
         }
     }
 
+    // The reference is an opaque vault key or DPAPI ciphertext. Resolving it may need an OS process.
+    String savedReference() throws IOException {
+        try { return Files.readString(file).strip(); }
+        catch (NoSuchFileException absent) { return ""; }
+    }
+
     String read() throws IOException, InterruptedException {
-        if (!Files.isRegularFile(file)) return "";
-        String reference = Files.readString(file).strip();
+        return read(savedReference());
+    }
+
+    String read(String reference) throws IOException, InterruptedException {
         if (reference.equals(DELETE_PENDING + key)) {
             clear();
             return "";
         }
+        return readCredential(reference);
+    }
+
+    String readCredential(String reference) throws IOException, InterruptedException {
+        if (reference.isBlank() || reference.equals(DELETE_PENDING + key)) return "";
         if (os.startsWith("windows")) return command.run(powershell(false), reference);
         if (!reference.equals(key)) return "";
         if (os.startsWith("mac")) {

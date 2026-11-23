@@ -39,6 +39,7 @@ public final class YouTubeAccount implements AutoCloseable {
     private static final String TOKEN = "https://oauth2.googleapis.com/token";
     private static final String API = "https://www.googleapis.com/youtube/v3/";
     private static final String SCOPE = "https://www.googleapis.com/auth/youtube.force-ssl";
+    private static final String CONNECT_FIRST = "Connect a YouTube account in SkyTube first.";
     private static final Gson JSON = new Gson();
     private static final SecureRandom RANDOM = new SecureRandom();
     private final Path configDir;
@@ -81,8 +82,13 @@ public final class YouTubeAccount implements AutoCloseable {
         this.openBrowser = openBrowser;
         worker.execute(() -> {
             try {
-                refresh = store.read();
-                signedIn = !refresh.isBlank();
+                String reference;
+                synchronized (this) {
+                    if (signOutRequested) return;
+                    reference = store.savedReference();
+                }
+                refresh = store.read(reference);
+                signedIn = !refresh.isBlank() && !signOutRequested;
             } catch (Exception ignored) { /* The secure store can be locked or absent. */ }
         });
     }
@@ -193,6 +199,11 @@ public final class YouTubeAccount implements AutoCloseable {
         var pending = loginAttempt;
         if (pending != null) pending.cancel();
         signedIn = false;
+        // Windows deletes its only ciphertext at local sign-out. Keep the reference
+        // for this one worker job so it can attempt revocation before clearing the vault.
+        String snapshot = null;
+        try { snapshot = store.savedReference(); }
+        catch (IOException ignored) { /* A null snapshot means remote revocation is unconfirmed. */ }
         try {
             store.markSignedOut();
             localSignOutSaved = true;
@@ -200,26 +211,42 @@ public final class YouTubeAccount implements AutoCloseable {
             localSignOutSaved = false; // The worker retries. Shutdown must report a failed local save.
         }
         if (activeLogout != null && !activeLogout.isDone()) return activeLogout;
-        activeLogout = task(() -> {
-            String token = refresh.isBlank() ? access : refresh;
-            access = refresh = "";
-            expires = Instant.EPOCH;
-            signedIn = false;
-            boolean cleared = true;
-            try { store.clear(); } catch (IOException e) { cleared = false; }
-            if (!token.isBlank()) {
-                try { send(formPost(revokeEndpoint, Map.of("token", token))); }
-                catch (IOException | AccountError ex) {
-                    return "Disconnected locally. Check Google Account permissions to revoke access.";
-                }
-            }
-            return cleared ? "YouTube account disconnected." : "Disconnected. Check your operating system’s credential store.";
-        });
+        String reference = snapshot;
+        activeLogout = task(() -> disconnect(reference));
         return activeLogout;
     }
 
+    private String disconnect(String reference) throws InterruptedException {
+        String token = refresh.isBlank() ? access : refresh;
+        access = refresh = "";
+        expires = Instant.EPOCH;
+        signedIn = false;
+        if (token.isBlank() && reference != null && !reference.isBlank()) {
+            try { token = store.readCredential(reference); }
+            catch (IOException | IllegalArgumentException unavailable) { /* Still clear locally and advise checking Google. */ }
+        }
+        boolean cleared = true;
+        try { store.clear(); } catch (IOException e) { cleared = false; }
+        boolean checkGoogle = reference == null || !reference.isBlank();
+        if (!token.isBlank()) {
+            try {
+                send(formPost(revokeEndpoint, Map.of("token", token)));
+                checkGoogle = false;
+            } catch (IOException | AccountError ex) { checkGoogle = true; }
+        }
+        if (!cleared && checkGoogle) return "Check your operating system’s credential store and Google Account permissions to finish sign-out.";
+        if (!cleared) return "Disconnected. Check your operating system’s credential store.";
+        if (checkGoogle) return "Disconnected locally. Check Google Account permissions to revoke access.";
+        return "YouTube account disconnected.";
+    }
+
+    private synchronized CompletableFuture<String> connectedAction(Action action) {
+        // A click made during OAuth consent must not become a public write after login.
+        return isSignedIn() ? task(action) : CompletableFuture.completedFuture(CONNECT_FIRST);
+    }
+
     public CompletableFuture<String> rate(String videoId, String rating) {
-        return task(() -> {
+        return connectedAction(() -> {
             verifyId(videoId);
             if (!Set.of("like", "dislike", "none").contains(rating)) throw new AccountError("Choose like, dislike, or none.");
             data("POST", "videos/rate?" + form(Map.of("id", videoId, "rating", rating)), null);
@@ -228,7 +255,7 @@ public final class YouTubeAccount implements AutoCloseable {
     }
 
     public CompletableFuture<String> comment(String videoId, String text) {
-        return task(() -> {
+        return connectedAction(() -> {
             verifyId(videoId);
             verifyText(text, 10000, "comment");
             String channel = metadata(videoId, "snippet").getAsJsonObject("snippet").get("channelId").getAsString();
@@ -240,7 +267,7 @@ public final class YouTubeAccount implements AutoCloseable {
     }
 
     public CompletableFuture<String> sendChat(String videoId, String text) {
-        return task(() -> {
+        return connectedAction(() -> {
             verifyId(videoId);
             verifyText(text, 200, "chat message");
             var video = metadata(videoId, "liveStreamingDetails");
@@ -262,7 +289,7 @@ public final class YouTubeAccount implements AutoCloseable {
     private JsonObject data(String method, String path, Object body) throws Exception {
         long generation;
         synchronized (this) {
-            if (!isSignedIn()) throw new AccountError("Connect a YouTube account in SkyTube first.");
+            if (!isSignedIn()) throw new AccountError(CONNECT_FIRST);
             generation = accountGeneration;
         }
         if (Instant.now().plusSeconds(60).isAfter(expires)) {

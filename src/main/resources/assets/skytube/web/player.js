@@ -1,6 +1,8 @@
 /* Control only the public IFrame Player API. The cross-origin player owns its controls and audio. */
 "use strict";
 
+const SEEK_REPORT_GRACE_MS = 1500;
+
 class SkyTubePlayer {
     constructor(adapter) {
         this.adapter = adapter;
@@ -83,6 +85,7 @@ class SkyTubePlayer {
                     const next = index + (action === "next" ? 1 : -1);
                     if (next >= 0 && next < list.length) {
                         this.observeShuffleAnchor(list, true);
+                        this.pendingSeek = null;
                         this.cuedStartSeconds = 0;
                         if (this.restoringQueue) {
                             this.selectPlaylist(list, next, list[next], 0);
@@ -113,8 +116,7 @@ class SkyTubePlayer {
                     const duration = p.getDuration();
                     this.followLive = false;
                     const seconds = Math.max(0, duration > 0 ? Math.min(duration, target) : target);
-                    if (this.cuedStartSeconds !== null) this.cuedStartSeconds = seconds;
-                    p.seekTo(seconds, true);
+                    this.seekTo(seconds);
                     if (!this.desiredPlaying && this.state !== 2) this.command("pause");
                 }
                 break;
@@ -122,7 +124,7 @@ class SkyTubePlayer {
                 this.followLive = true;
                 if (p && this.source.live && p.getDuration() > 0) {
                     this.lastCatchup = this.adapter.now();
-                    p.seekTo(Math.max(0, p.getDuration() - 1), true);
+                    this.seekTo(Math.max(0, p.getDuration() - 1));
                     if (!this.desiredPlaying && this.state !== 2) this.command("pause");
                 }
                 break;
@@ -201,6 +203,7 @@ class SkyTubePlayer {
         this.player = null;
         this.source = source;
         this.cuedStartSeconds = source.startSeconds || 0;
+        this.pendingSeek = null;
         this.ready = false;
         this.state = -1;
         this.commandedPause = false;
@@ -266,10 +269,42 @@ class SkyTubePlayer {
 
     videoId() { return this.reportedVideoId() || this.selected; }
 
+    clockRate() { return this.state === 1 ? this.player.getPlaybackRate() : 0; }
+
     effectivePosition() {
+        const position = this.player.getCurrentTime() || 0;
+        const pending = this.pendingSeek;
+        if (pending) {
+            const now = this.adapter.now();
+            const rate = this.clockRate();
+            // The SDK can still report its old clock, or one of several earlier seeks.
+            // A new position (including an iframe scrub), item, or timeout hands control back.
+            if (now - pending.time < SEEK_REPORT_GRACE_MS && position !== pending.target && pending.videoId === this.videoId() &&
+                    pending.index === (this.source.playlistId ? this.player.getPlaylistIndex() : -1) &&
+                    pending.previous.some(old => position >= old.position &&
+                        position <= old.position + (now - old.time) / 1000 * Math.max(old.rate, rate) + 0.05)) {
+                return pending.target;
+            }
+            this.pendingSeek = null;
+        }
         // Only an unplayed cue needs a fallback. After playback, zero is a real
         // position, including when the user scrubs back to the start in the iframe.
-        return this.player.getCurrentTime() || this.cuedStartSeconds || 0;
+        return position || this.cuedStartSeconds || 0;
+    }
+
+    seekTo(seconds) {
+        const time = this.adapter.now();
+        // State and time arrive separately. The earlier clock can still advance at its old rate.
+        const rate = this.clockRate();
+        // Discard earlier requests if the iframe has already landed or changed items.
+        if (this.pendingSeek) this.effectivePosition();
+        const previous = (this.pendingSeek?.previous || []).filter(old => time - old.time < SEEK_REPORT_GRACE_MS);
+        if (this.pendingSeek) previous.push({position: this.pendingSeek.target, time: this.pendingSeek.time, rate: this.pendingSeek.rate});
+        previous.push({position: this.player.getCurrentTime() || 0, time, rate});
+        this.pendingSeek = {target: seconds, time, rate, previous, videoId: this.videoId(),
+            index: this.source.playlistId ? this.player.getPlaylistIndex() : -1};
+        if (this.cuedStartSeconds !== null) this.cuedStartSeconds = seconds;
+        this.player.seekTo(seconds, true);
     }
 
     expectSelection(index, id, startSeconds = 0, previous = null) {
@@ -309,6 +344,7 @@ class SkyTubePlayer {
 
     selectPlaylist(list, index, id, startSeconds, previous = null) {
         const spec = {listType: "playlist", list, index, startSeconds};
+        this.pendingSeek = null;
         this.cuedStartSeconds = startSeconds;
         this.expectSelection(index, id, startSeconds, previous);
         if (this.desiredPlaying) this.player.loadPlaylist(spec);
@@ -459,6 +495,7 @@ class SkyTubePlayer {
     tick() {
         this.reconcilePlaylist();
         this.updateChat();
+        if (this.ready && this.pendingSeek) this.effectivePosition();
         if (this.ready && this.state === 1 && this.source.live && this.lowLatency) {
             const now = this.adapter.now();
             const duration = this.player.getDuration();
@@ -484,7 +521,7 @@ class SkyTubePlayer {
             if (this.followLive && this.lastGrowth !== null && now - this.lastGrowth <= 15000 &&
                     position > 0 && duration - position > 8 && now - this.lastCatchup >= 15000) {
                 this.lastCatchup = now;
-                this.player.seekTo(Math.max(0, duration - 1), true);
+                this.seekTo(Math.max(0, duration - 1));
             }
         }
     }

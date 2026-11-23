@@ -8,11 +8,13 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.entity.NoopRenderer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -88,13 +90,21 @@ final class TerrainVisibility {
         if (distance == 0) return true;
         Vec3 end = eye.add(direction.x * distance, direction.y * distance, direction.z * distance);
         if (!sections.isEmpty()) {
-            ClipContext ray = new ClipContext(eye, end, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, camera.entity()) {
+            ClipContext ray = new ClipContext(eye, end, ClipContext.Block.VISUAL, ClipContext.Fluid.ANY, camera.entity()) {
                 @Override public VoxelShape getBlockShape(BlockState state, BlockGetter level, BlockPos pos) {
                     // A vanilla barrier has a full collision-derived visual shape but no rendered block model.
                     if (state.isAir() || state.is(Blocks.BARRIER) || !sections.contains(SectionPos.asLong(pos))) {
                         return Shapes.empty();
                     }
                     return super.getBlockShape(state, level, pos);
+                }
+
+                @Override public VoxelShape getFluidShape(FluidState state, BlockGetter level, BlockPos pos) {
+                    // Vanilla draws both still and flowing lava in the solid terrain layer.
+                    if (state.is(FluidTags.LAVA) && sections.contains(SectionPos.asLong(pos))) {
+                        return super.getFluidShape(state, level, pos);
+                    }
+                    return Shapes.empty();
                 }
             };
             if (client.level.clip(ray).getType() != HitResult.Type.MISS) return false;

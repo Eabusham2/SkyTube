@@ -1,6 +1,6 @@
 # Request coverage
 
-This checklist distinguishes implemented behavior from what depends on YouTube, an account setup, or a particular graphics environment. The tests and their evidence are described in [TESTING.md](TESTING.md). The [1.0.2 requirement audit](AUDIT_1.0.2.md) records the latest complete review and targeted regressions; the [1.0.1 audit](AUDIT_1.0.1.md) preserves the earlier fixes and external-playback diagnosis.
+This checklist distinguishes implemented behavior from what depends on YouTube, an account setup, or a particular graphics environment. The tests and their evidence are described in [TESTING.md](TESTING.md). The [1.0.3 requirement audit](AUDIT_1.0.3.md) records the latest complete review and targeted regressions; the [1.0.2 audit](AUDIT_1.0.2.md) and [1.0.1 audit](AUDIT_1.0.1.md) preserve the earlier fixes and external-playback diagnosis.
 
 | Requested feature | Implementation | Verification / practical boundary |
 | --- | --- | --- |

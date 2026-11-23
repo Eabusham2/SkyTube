@@ -5,7 +5,10 @@ import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -34,6 +37,48 @@ class YouTubeAccountTest {
     private static final String VIDEO = "M7lc1UVf-VE";
     private static final String SCOPE = "https://www.googleapis.com/auth/youtube.force-ssl";
     record Request(URI target, String method, String auth, String body) {}
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void earlySignOutRevokesSavedCredentialOrExplainsWhenVaultIsLocked(boolean readable, @TempDir Path dir)
+            throws Exception {
+        var vault = new TokenStore(dir, "Linux", (args, input) -> {
+            if (args.contains("lookup")) {
+                if (!readable) throw new IOException("Synthetic locked vault");
+                return "fixture-saved-refresh";
+            }
+            return "";
+        });
+        vault.save("fixture-saved-refresh");
+        List<String> revoked = new CopyOnWriteArrayList<>();
+        var api = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 4);
+        api.createContext("/revoke", exchange -> {
+            try (exchange) {
+                revoked.add(query(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)).get("token"));
+                exchange.sendResponseHeaders(204, -1);
+            }
+        });
+        api.start();
+        String base = "http://127.0.0.1:" + api.getAddress().getPort();
+        var worker = Executors.newSingleThreadExecutor();
+        var release = new CountDownLatch(1);
+        worker.submit(() -> { release.await(); return null; });
+        try (var account = new YouTubeAccount(dir, ignored -> fail("No browser expected"),
+                base + "/token", base + "/v3/", base + "/revoke", worker, vault)) {
+            var logout = account.logout();
+            assertFalse(account.isSignedIn());
+            assertTrue(Files.readString(dir.resolve("youtube-account.dat")).startsWith("delete-pending:"));
+            release.countDown();
+            String outcome = logout.get(4, TimeUnit.SECONDS);
+            assertEquals(readable ? List.of("fixture-saved-refresh") : List.of(), revoked);
+            if (readable) assertEquals("YouTube account disconnected.", outcome);
+            else assertTrue(outcome.contains("Google Account permissions"), outcome);
+            assertFalse(Files.exists(dir.resolve("youtube-account.dat")));
+        } finally {
+            release.countDown();
+            api.stop(0);
+        }
+    }
 
     @Test void closingWhileSignOutIsQueuedCannotRestoreTheSavedAccount(@TempDir Path dir) throws Exception {
         // Prime a real reference file through a fake vault. The queued worker never gets
@@ -179,8 +224,10 @@ class YouTubeAccountTest {
         });
         api.start();
         String base = "http://127.0.0.1:" + api.getAddress().getPort();
+        var worker = Executors.newSingleThreadExecutor();
         try (var account = new YouTubeAccount(dir, uri -> fail("No browser expected"),
-                base + "/token", base + "/v3/", base + "/revoke", Executors.newSingleThreadExecutor(), vault)) {
+                base + "/token", base + "/v3/", base + "/revoke", worker, vault)) {
+            worker.submit(() -> {}).get(3, TimeUnit.SECONDS); // The saved account is connected before the click.
             var rating = account.rate(VIDEO, "like");
             assertTrue(refreshStarted.await(3, TimeUnit.SECONDS));
             var logout = account.logout();
@@ -231,6 +278,14 @@ class YouTubeAccountTest {
             var params = query(browser.get(4, TimeUnit.SECONDS).getRawQuery());
             assertEquals(SCOPE, params.get("scope"));
             assertTrue(requests.isEmpty());
+            assertFalse(account.isSignedIn());
+            var premature = List.of(account.rate(VIDEO, "like"), account.rate(VIDEO, "dislike"),
+                    account.rate(VIDEO, "none"), account.comment(VIDEO, "Pending comment"),
+                    account.sendChat(VIDEO, "Pending chat"));
+            for (var action : premature) {
+                assertTrue(action.isDone(), "An action requested during consent must not queue behind sign-in");
+                assertTrue(action.join().contains("Connect a YouTube account"));
+            }
             URI callback = URI.create(params.get("redirect_uri") + "/?state=" + params.get("state") + "&code=code-fixture");
             assertEquals(200, http.send(HttpRequest.newBuilder(callback).GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode());
             assertTrue(login.get(4, TimeUnit.SECONDS).startsWith("YouTube account connected"));

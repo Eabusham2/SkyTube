@@ -18,7 +18,7 @@ Official references: [Desktop app OAuth flow](https://developers.google.com/iden
 
 ## Use the controls
 
-- **Like / Dislike / Clear rating** acts on the selected current video, including the current playlist item.
+- **Like / Dislike / Clear rating** acts on the selected current video, including the current playlist item. Public-write buttons require both a connected account and a confirmed video. Actions requested before consent completes are rejected immediately.
 - Write text and press **Post comment** to add a top-level comment to that video. The mod does not automatically post drafts.
 - On an active stream, write text and press **Send live chat**, or enter **`/yt your message`** in Minecraft chat. The account must be eligible to participate in that stream's chat.
 - Change `yt` in the Account page's prefix field if you prefer another local command. Use a lowercase letter followed by letters, digits or underscores, up to 16 characters. The prefix is active immediately after Save.
@@ -29,7 +29,7 @@ The browser login used for OAuth does **not** log MCEF into YouTube. Private / a
 
 Refresh tokens are stored using **Windows DPAPI**, **macOS Keychain**, or **Linux Secret Service** when available. On systems without a usable credential store, account access is kept in memory for the current session. No unencrypted refresh-token fallback is written to disk.
 
-**Sign out** clears the local connection and attempts Google's token revocation. If revocation fails because the network is unavailable, revoke access in your [Google Account permissions](https://myaccount.google.com/permissions). Do not upload `youtube-client.json`, `youtube-account.dat`, or the game's profile directory when reporting an issue.
+**Sign out** clears the local connection immediately and attempts Google's token revocation on the account worker, including when startup has not finished reading a saved credential. If the credential vault is locked or revocation cannot be confirmed, the status directs you to [Google Account permissions](https://myaccount.google.com/permissions) to revoke access. Do not upload `youtube-client.json`, `youtube-account.dat`, or the game's profile directory when reporting an issue.
 
 ## Limits
 
