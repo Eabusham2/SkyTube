@@ -8,11 +8,18 @@ on:
         default: main
         required: true
         type: string
+      youtube:
+        description: Check external YouTube playback for all three provider settings
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       ref:
         required: true
         type: string
+      youtube:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -38,7 +45,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb xauth libgl1-mesa-dri libgtk-3-0t64 libnss3 libasound2t64
       - name: Render a Chromium page inside a singleplayer world
-        run: xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew --stacktrace runClientGameTest
+        env:
+          SMOKE_YOUTUBE: ${{ inputs.youtube }}
+        run: xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew --stacktrace "-PsmokeYouTube=$SMOKE_YOUTUBE" runClientGameTest
       - uses: actions/upload-artifact@v4
         if: always()
         with:

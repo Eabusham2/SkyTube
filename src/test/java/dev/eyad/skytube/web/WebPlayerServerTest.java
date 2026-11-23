@@ -1,6 +1,7 @@
 package dev.eyad.skytube.web;
 
 import com.google.gson.JsonParser;
+import dev.eyad.skytube.core.YouTubeSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -39,7 +40,7 @@ class WebPlayerServerTest {
             server.command("load", Map.of("videoId", "M7lc1UVf-VE"));
             server.command("volume", 23); server.command("volume", 62);
             String sample = """
-                    {"ack":%d,"status":{"ready":true,"state":2,"userPaused":true,"videoId":"M7lc1UVf-VE",
+                    {"ack":%d,"status":{"ready":true,"state":2,"userPaused":true,"videoId":"M7lc1UVf-VE","confirmedTargetVideoId":"M7lc1UVf-VE",
                     "currentTime":30,"duration":100,"playbackRate":1.25,"message":""}}
                     """;
             var sync = HttpRequest.newBuilder(page.resolve("sync")).setHeader("Content-Type", "application/json");
@@ -56,7 +57,27 @@ class WebPlayerServerTest {
                     HttpResponse.BodyHandlers.ofString()).body());
             assertEquals(1.25, server.status().playbackRate());
             assertTrue(server.status().userPaused());
+            assertEquals("M7lc1UVf-VE", server.status().accountTarget(YouTubeSource.parse("M7lc1UVf-VE"), 3, System.nanoTime()));
         }
+    }
+
+    @Test void accountTargetsRequireFreshConfirmationOfTheLatestSelection() {
+        String current = "M7lc1UVf-VE";
+        String other = "dQw4w9WgXcQ";
+        var playlist = new YouTubeSource(other, "PLselected", 0);
+        var standalone = YouTubeSource.parse(other);
+        long now = 10_000_000_000L;
+        var confirmed = new WebPlayerServer.Status(true, true, 2, current, current, 0, 10, 1, "", false, 17, now);
+        assertEquals(current, confirmed.accountTarget(playlist, 17, now));
+        assertEquals("", confirmed.accountTarget(standalone, 17, now));
+        assertEquals("", confirmed.accountTarget(playlist, 18, now));
+        assertEquals("", confirmed.accountTarget(playlist, 17, now + 6_000_000_000L));
+        var switching = new WebPlayerServer.Status(true, true, 3, current, "", 0, 10, 1, "", false, 18, now);
+        assertEquals("", switching.accountTarget(playlist, 18, now));
+        var disagree = new WebPlayerServer.Status(true, true, 5, current, other, 0, 10, 1, "", false, 18, now);
+        assertEquals("", disagree.accountTarget(playlist, 18, now));
+        var loading = new WebPlayerServer.Status(true, false, -1, current, current, 0, 10, 1, "", false, 18, now);
+        assertEquals("", loading.accountTarget(playlist, 18, now));
     }
 
     @Test void accountReportsMissingCredentialsAndNeverOpensBrowserForWrites(@TempDir Path dir) throws Exception {

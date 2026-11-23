@@ -2,6 +2,7 @@ package dev.eyad.skytube.client;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import dev.eyad.skytube.core.SkyAnchor;
 import dev.eyad.skytube.core.SkySettings;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -32,6 +33,19 @@ public final class ModConfig {
     public double yaw = 0;
     public double pitch = -25;
 
+    public void captureView(double cameraYaw, double cameraPitch) {
+        var direction = new SkyAnchor.Direction(
+                Double.isFinite(cameraYaw) ? cameraYaw : 0,
+                Double.isFinite(cameraPitch) ? cameraPitch : -25);
+        yaw = direction.yaw();
+        pitch = direction.pitch();
+    }
+
+    public void setFollowView(boolean enabled, double cameraYaw, double cameraPitch) {
+        if (followView && !enabled) captureView(cameraYaw, cameraPitch);
+        followView = enabled;
+    }
+
     public void normalize() {
         SkySettings settings = new SkySettings(visibilityThreshold, cloudOpacity, followView,
                 rewindSeconds, playbackRate, shuffle, volume);
@@ -41,8 +55,7 @@ public final class ModConfig {
         playbackRate = settings.playbackRate();
         volume = settings.volume();
         angularWidth = finite(angularWidth, 15, 110, 54);
-        yaw = finite(yaw, -180, 180, 0);
-        pitch = finite(pitch, -89.5, 89.5, -25);
+        captureView(yaw, pitch);
         if (source == null || source.length() > 4096) source = "";
         if (provider == null || !Set.of("nocookie", "youtube", "yout-ube").contains(provider)) provider = "nocookie";
         if (chatPrefix == null || !chatPrefix.matches("[a-z][a-z0-9_]{0,15}")) chatPrefix = "yt";

@@ -15,7 +15,7 @@ The release workflow requires a successful production build, unit/integration su
 | Ad skip fixture | Requires YouTube player origin, an active ad, visible enabled unobstructed Skip control; hidden/disabled/unavailable controls do not trigger a click |
 | OpenGL shader smoke | Links both real shader pairs and reads actual color/depth pixels at 0%, 50% and 100% cloud opacity; validates unchanged pixels outside the mask |
 
-Local verification during development passed **97 Java tests** (93 core/configuration and four web/account integration tests) and **13 Node tests**, including delayed-event regressions for both native manual pause and rapid resume. Counts may increase as regressions are added. These numbers refer to automated cases; none of the account tests signs into a real Google account or posts public messages.
+Local verification for 1.0.1 passed **109 Java tests** and **21 Node tests**. The added regressions cover queued OAuth cancellation, cancellation during token exchange, immediate shutdown after sign-out, an unfinished vault save, failed vault deletion and retry, local command-suggestion privacy, stale account targets, playlist positions/timestamps and delayed transitions, and recovery after a partial YouTube SDK download. The production browser adapter is executed in Node VM tests to check all three provider choices and their actual embed hosts/parameters. None of the account tests signs into a real Google account or posts public messages.
 
 Run the suites with:
 
@@ -30,7 +30,9 @@ The explicit Node path matters: running bare `node --test` after a Gradle build 
 
 `src/gametest` is a **separate test mod**. It is not included in the production or source distribution JAR.
 
-The normal `runClientGameTest` launches the actual Minecraft 1.21.11 client, creates a singleplayer world, checks all three native menu pages and minimum-size widget bounds, initializes the pinned MCEF Modern browser, and navigates that browser to a local magenta/cyan HTML fixture. It checks actual screenshots for both halves of the browser texture under Fancy and Fast cloud modes, then verifies that hiding the display removes it. The release gate always uses the native MCEF path.
+The normal `runClientGameTest` launches the actual Minecraft 1.21.11 client and creates a singleplayer world. It opens the popup using the registered hotkey, navigates Player/Display/Account and Interact/Back using the actual buttons, checks minimum-size widget bounds, and tests the real command-suggestion provider with both a private draft and an ordinary server command. It initializes the pinned MCEF Modern browser and navigates it to a local magenta/cyan HTML fixture. Actual screenshots must contain both halves under Fancy and Fast cloud modes and neither half when the display is hidden. The release gate always uses the native MCEF path.
+
+The same game test adds near, distant, partial and non-rendered roof fixtures, an entity, camera turns, Follow view locking, and recentering. It compares both GPU readback and the production visibility calculation. A test-only HTTP consumer then reads the actual production loopback commands to check playback/mute at 90% and adjusted thresholds, manual-pause persistence, focus changes, covering menus, screen power and world-exit browser release. These transport checks verify what the mod commands; they do not replace an audible-output check.
 
 ```bash
 # Linux, with Xvfb and the required GTK/OpenGL libraries installed:
@@ -40,6 +42,16 @@ xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew runClientGameTest
 Screenshots, the Minecraft log and any crash report are uploaded by the `Minecraft client smoke test` workflow. These checks detect startup/Mixin errors, missing shaders, invalid GPU calls, absent textures, reversed screen halves and show/hide regressions. They do not prove that a particular YouTube stream is available, that an advertisement is skippable, or that a real account can post.
 
 The development sandbox successfully started Minecraft, created a world and rendered the native menu. Its Unix-domain-socket policy then prevented Chromium's process-singleton startup. A separate **test-only GPU texture fixture** verifies local world rendering without claiming a native browser pass; the full native check runs on GitHub's normal Linux runner. That fallback is never selected by release CI.
+
+## Optional real YouTube check
+
+The `Minecraft client smoke test` workflow has an opt-in **youtube** input, defaulting to false. With it enabled, a separate test opens the official public IFrame API example video through normal YouTube, No-Cookie and the yout-ube destination in actual MCEF. Each provider must report the expected iframe host, confirmed video ID, `PLAYING` state and advancing playback time. Normal YouTube must also pass native manual pause, a stable paused clock, rewind and resume.
+
+```bash
+xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew -PsmokeYouTube=true runClientGameTest
+```
+
+Each provider has a 90-second wall-clock limit. Every failure produces player telemetry and a screenshot, and the remaining providers are still checked. The test does not sign in, post, automatically click verification prompts, or skip ads. YouTube availability, consent, embedding rules and data-center verification may block it; inspect the actual workflow result before claiming live-provider playback passed. This external-service check is separate from the deterministic release gate. A playback clock on a runner with a null audio device does not prove audible output, live DVR/chat behavior, or every YouTube video.
 
 ## Reproducible cloud pixel check
 

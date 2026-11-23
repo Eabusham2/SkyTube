@@ -86,6 +86,9 @@ loom.runs.clientGameTest {
     if (providers.gradleProperty('smokeTextureOnly').map { it.toBoolean() }.getOrElse(false)) {
         property 'skytube.smoke.textureOnly', 'true'
     }
+    if (providers.gradleProperty('smokeYouTube').map { it.toBoolean() }.getOrElse(false)) {
+        property 'skytube.smoke.youtube', 'true'
+    }
 }
 
 check.dependsOn tasks.named('gametestClasses')

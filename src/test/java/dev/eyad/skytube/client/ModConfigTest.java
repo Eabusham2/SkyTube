@@ -65,6 +65,24 @@ class ModConfigTest {
     }
 
     @Test
+    void leavingFollowLocksTheCurrentDirectionAndPersistsExactPoles() throws IOException {
+        ModConfig config = new ModConfig();
+        config.captureView(20, -90);
+        config.setFollowView(false, 80, -15);
+        assertEquals(20, config.yaw);
+        assertEquals(-90, config.pitch);
+        config.setFollowView(true, 80, -15);
+        config.setFollowView(false, 550, 90);
+        assertFalse(config.followView);
+        Path path = directory.resolve("settings.json");
+        config.save(path);
+        ModConfig restored = ModConfig.load(path);
+        assertEquals(-170, restored.yaw);
+        assertEquals(90, restored.pitch);
+        assertFalse(restored.followView);
+    }
+
+    @Test
     void recoversFromBrokenJsonAndPreservesOriginalForInspection() throws IOException {
         Path path = directory.resolve("settings.json");
         String broken = "{ broken file";

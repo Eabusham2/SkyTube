@@ -1,6 +1,6 @@
 # Request coverage
 
-This checklist distinguishes implemented behavior from what depends on YouTube, an account setup, or a particular graphics environment. The tests and their evidence are described in [TESTING.md](TESTING.md).
+This checklist distinguishes implemented behavior from what depends on YouTube, an account setup, or a particular graphics environment. The tests and their evidence are described in [TESTING.md](TESTING.md). The [1.0.1 implementation audit](AUDIT_1.0.1.md) records the concrete defects found and corrected during the follow-up verification.
 
 | Requested feature | Implementation | Verification / practical boundary |
 | --- | --- | --- |

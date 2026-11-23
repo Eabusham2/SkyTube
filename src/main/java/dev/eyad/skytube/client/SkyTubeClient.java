@@ -1,5 +1,6 @@
 package dev.eyad.skytube.client;
 
+import dev.eyad.skytube.core.LocalChatCommand;
 import dev.eyad.skytube.core.PlaybackController;
 import dev.eyad.skytube.core.YouTubeSource;
 import dev.eyad.skytube.web.WebPlayerServer;
@@ -43,8 +44,10 @@ public final class SkyTubeClient implements ClientModInitializer {
     private PlaybackController.State sentState;
     private boolean lastIframePaused;
     private boolean worldLoaded;
-    private boolean sourceLoaded;
-    private long loadCommand;
+    private YouTubeSource loadedSource;
+    private long selectionCommand;
+    private String sentProvider;
+    private Boolean sentShuffle;
     private long manualCommand;
     private long lastTransportNanos;
     private boolean inferredLive;
@@ -74,8 +77,8 @@ public final class SkyTubeClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
         ClientSendMessageEvents.ALLOW_COMMAND.register(command -> {
             String prefix = config.chatPrefix;
-            if (command.equals(prefix) || command.startsWith(prefix + " ")) {
-                String text = command.length() == prefix.length() ? "" : command.substring(prefix.length() + 1).strip();
+            if (LocalChatCommand.matches(command, prefix)) {
+                String text = command.substring(prefix.length()).strip();
                 if (text.isEmpty()) notifyUser("Use /" + prefix + " your message to send YouTube live chat.");
                 else sendChat(text);
                 return false;
@@ -120,7 +123,7 @@ public final class SkyTubeClient implements ClientModInitializer {
         double visible = renderer.visibleFraction();
         if (client.screen instanceof InteractionScreen) visible = 1;
         else if (client.screen != null && !(client.screen instanceof ChatScreen)) visible = 0;
-        boolean enabled = config.screenOn && sourceLoaded && client.isWindowActive();
+        boolean enabled = config.screenOn && loadedSource != null && client.isWindowActive();
         PlaybackController.State desired = playback.tick(enabled, visible, System.nanoTime() / 1_000_000);
         if (sentState == null || desired.muted() != sentState.muted()) server.command("mute", desired.muted());
         boolean escapedPause = !desired.playing() && (server.status().state() == 1 || server.status().state() == 3)
@@ -143,25 +146,30 @@ public final class SkyTubeClient implements ClientModInitializer {
             if (surface == null) surface = new BrowserSurface();
             config.source = url.strip();
             if (centerNow) config.screenOn = true;
-            boolean liveLink = url.matches("(?i)(?:https?://)?(?:www\\.|m\\.)?(?:youtube\\.com|yout-ube\\.com)/live/.*");
-            if (inferredLive && !liveLink) config.live = false;
-            if (liveLink) config.live = true;
+            boolean liveLink = config.source.matches("(?i)(?:https?://)?(?:www\\.|m\\.|music\\.)?(?:youtube\\.com|yout-ube\\.com)/live/.*");
+            if (centerNow) {
+                if (liveLink) config.live = true;
+                else if (inferredLive) config.live = false;
+            }
             inferredLive = liveLink;
             playback.newSource();
             lastIframePaused = server.status().userPaused();
             sentState = null;
-            sourceLoaded = true;
             surface.chat(config.showChat);
             surface.start(server.pageUrl());
             Map<String, Object> request = new LinkedHashMap<>();
             if (source.videoId() != null) request.put("videoId", source.videoId());
             if (source.playlistId() != null) request.put("playlistId", source.playlistId());
+            if (source.index() != null) request.put("index", source.index());
             request.put("startSeconds", source.startSeconds());
             request.put("live", config.live);
             request.put("autoplay", false);
             server.command("provider", config.provider);
-            loadCommand = server.command("load", request);
-            manualCommand = loadCommand;
+            sentProvider = config.provider;
+            selectionCommand = server.command("load", request);
+            manualCommand = selectionCommand;
+            loadedSource = source;
+            sentShuffle = null;
             syncPreferences();
             if (centerNow) center();
             save();
@@ -181,10 +189,16 @@ public final class SkyTubeClient implements ClientModInitializer {
     }
     private void syncPreferences() {
         if (server == null) return;
-        server.command("provider", config.provider);
+        if (!config.provider.equals(sentProvider)) {
+            selectionCommand = Math.max(selectionCommand, server.command("provider", config.provider));
+            sentProvider = config.provider;
+        }
         server.command("rate", config.playbackRate);
         server.command("volume", Math.round(config.volume * 100));
-        server.command("shuffle", config.shuffle);
+        if (sentShuffle == null || sentShuffle != config.shuffle) {
+            selectionCommand = Math.max(selectionCommand, server.command("shuffle", config.shuffle));
+            sentShuffle = config.shuffle;
+        }
         server.command("chat", config.showChat);
         server.command("lowLatency", config.lowLatency);
         server.command("live", config.live);
@@ -212,9 +226,12 @@ public final class SkyTubeClient implements ClientModInitializer {
     public void toggleScreen() { config.screenOn = !config.screenOn; settingsChanged(); }
     public void center() {
         var camera = Minecraft.getInstance().gameRenderer.getMainCamera();
-        config.yaw = Math.IEEEremainder(camera.yRot(), 360);
-        config.pitch = camera.xRot();
+        config.captureView(camera.yRot(), camera.xRot());
         save();
+    }
+    public void toggleFollowView() {
+        var camera = Minecraft.getInstance().gameRenderer.getMainCamera();
+        config.setFollowView(!config.followView, camera.yRot(), camera.xRot());
     }
     public void changeRate(int direction) {
         double current = config.playbackRate;
@@ -227,11 +244,14 @@ public final class SkyTubeClient implements ClientModInitializer {
     }
     public void command(String action, Object value) {
         if (server == null) { notifyUser("Load a video or playlist first."); return; }
-        server.command(action, value);
+        long id = server.command(action, value);
+        if ("next".equals(action) || "prev".equals(action)) selectionCommand = id;
     }
     public void sendChat(String text) {
         if (text == null || text.isBlank()) { notifyUser("Enter a live chat message."); return; }
-        report(account.sendChat(currentVideoId(), text));
+        String id = currentVideoId();
+        if (id.isEmpty()) { notifyUser("Wait for the player to confirm the current video."); return; }
+        report(account.sendChat(id, text));
     }
     public void report(CompletableFuture<String> result) {
         result.whenComplete((text, error) -> Minecraft.getInstance().execute(() -> {
@@ -251,9 +271,7 @@ public final class SkyTubeClient implements ClientModInitializer {
         Util.getPlatform().openPath(configDir);
     }
     public String currentVideoId() {
-        if (server != null && server.status().appliedCommand() >= loadCommand && !server.status().videoId().isBlank()) return server.status().videoId();
-        try { String id = YouTubeSource.parse(config.source).videoId(); return id == null ? "" : id; }
-        catch (IllegalArgumentException ignored) { return ""; }
+        return server == null ? "" : server.status().accountTarget(loadedSource, selectionCommand, System.nanoTime());
     }
     public String status() {
         if (!message.isEmpty() && System.nanoTime() < messageUntil) return message;
@@ -272,7 +290,9 @@ public final class SkyTubeClient implements ClientModInitializer {
     private void releaseMedia() {
         if (surface != null) { surface.close(); surface = null; }
         if (server != null) { server.close(); server = null; }
-        sourceLoaded = false;
+        loadedSource = null;
+        sentProvider = null;
+        sentShuffle = null;
         sentState = null;
         playback.newSource();
     }

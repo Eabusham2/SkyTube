@@ -24,7 +24,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class LevelRendererMixin {
     @Shadow @Final private LevelTargetBundle targets;
 
-    @Inject(method = "renderLevel", at = @At("HEAD"))
+    // Sampling needs the section list and entity view scale for the current world frame.
+    @Inject(method = "renderLevel", at = @At(value = "INVOKE", shift = At.Shift.AFTER,
+            target = "Lnet/minecraft/client/renderer/LevelRenderer;extractVisibleEntities(Lnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/culling/Frustum;Lnet/minecraft/client/DeltaTracker;Lnet/minecraft/client/renderer/state/LevelRenderState;)V"))
     private void skytube$prepare(GraphicsResourceAllocator allocator, DeltaTracker ticks, boolean outline,
                                  Camera camera, Matrix4f view, Matrix4f projection, Matrix4f cullProjection,
                                  GpuBufferSlice fog, Vector4f fogColor, boolean sky, CallbackInfo ci) {

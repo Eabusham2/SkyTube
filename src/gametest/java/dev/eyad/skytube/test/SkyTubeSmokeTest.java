@@ -1,6 +1,8 @@
 package dev.eyad.skytube.test;
 
+import dev.eyad.skytube.client.BrowserSurface;
 import dev.eyad.skytube.client.ControlScreen;
+import dev.eyad.skytube.client.InteractionScreen;
 import dev.eyad.skytube.client.SkyTubeClient;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -15,6 +17,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.client.CloudStatus;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.components.AbstractWidget;
 
 public final class SkyTubeSmokeTest implements FabricClientGameTest {
@@ -25,12 +28,33 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
     @Override
     public void runTest(ClientGameTestContext context) {
         SkyTubeClient mod = SkyTubeClient.get();
+        BrowserSurface activeSurface;
         try (TestSingleplayerContext world = context.worldBuilder().create()) {
             world.getClientWorld().waitForChunksRender();
-            String[] pages = {"controls", "display", "account"};
+            context.runOnClient(mc -> {
+                var connection = mc.getConnection();
+                var provider = connection.getSuggestionsProvider();
+                var dispatcher = connection.getCommands();
+                String local = "/" + mod.config().chatPrefix + " local draft";
+                var blocked = provider.customSuggestion(dispatcher.parse(local, provider).getContext().build(local));
+                if (!blocked.isDone() || !blocked.join().isEmpty()) {
+                    throw new AssertionError("Local YouTube chat requested multiplayer suggestions");
+                }
+                String ordinary = mod.config().chatPrefix.equals("help") ? "/list " : "/help ";
+                var allowed = provider.customSuggestion(dispatcher.parse(ordinary, provider).getContext().build(ordinary));
+                if (allowed.isDone()) throw new AssertionError("Ordinary remote suggestions were suppressed");
+            });
+            context.setScreen(() -> null);
+            context.getInput().pressKey(options -> KeyMapping.get("key.skytube.menu"));
+            context.waitForScreen(ControlScreen.class);
+            context.clickScreenButton("Interact");
+            context.waitForScreen(InteractionScreen.class);
+            context.clickScreenButton("Back to controls");
+            context.waitForScreen(ControlScreen.class);
+            String[] pages = {"Player", "Display", "Account"};
             for (int index = 0; index < pages.length; index++) {
                 int page = index;
-                context.setScreen(() -> new ControlScreen(mod, page));
+                if (page > 0) context.clickScreenButton(pages[page]);
                 context.waitForScreen(ControlScreen.class);
                 context.runOnClient(mc -> {
                     mc.screen.resize(320, 240);
@@ -42,7 +66,7 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
                     }
                     mc.screen.resize(mc.getWindow().getGuiScaledWidth(), mc.getWindow().getGuiScaledHeight());
                 });
-                context.takeScreenshot("skytube-" + pages[page]);
+                context.takeScreenshot(page == 0 ? "skytube-controls" : "skytube-" + pages[page].toLowerCase(java.util.Locale.ROOT));
             }
             context.setScreen(() -> null);
             context.runOnClient(mc -> {
@@ -53,7 +77,10 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
             });
 
             if (Boolean.getBoolean("skytube.smoke.textureOnly")) {
-                context.runOnClient(mc -> TextureFixture.install(mod));
+                context.runOnClient(mc -> {
+                    TextureFixture.install(mod);
+                    mod.load("M7lc1UVf-VE");
+                });
             } else {
                 openBrowserFixture(context, mod);
             }
@@ -77,7 +104,12 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
             if (hasFixtureColors(context.takeScreenshot("skytube-hidden"))) {
                 throw new AssertionError("The hidden sky screen still drew the browser");
             }
+            try (var bridge = new PlaybackBridgeProbe(context, mod)) {
+                SkyPlacementChecks.run(context, world, mod, bridge);
+            }
+            activeSurface = context.computeOnClient(mc -> mod.surface());
         }
+        context.waitFor(mc -> mc.level == null && mod.surface() == null && activeSurface.browser() == null, 200);
     }
 
     private static void openBrowserFixture(ClientGameTestContext context, SkyTubeClient mod) {

@@ -5,7 +5,10 @@
   "name": "SkyTube client smoke test",
   "environment": "client",
   "entrypoints": {
-    "fabric-client-gametest": ["dev.eyad.skytube.test.SkyTubeSmokeTest"]
+    "fabric-client-gametest": [
+      "dev.eyad.skytube.test.SkyTubeSmokeTest",
+      "dev.eyad.skytube.test.YouTubeNetworkSmokeTest"
+    ]
   },
   "depends": {
     "skytube": "*",

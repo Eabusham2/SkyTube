@@ -1,6 +1,9 @@
 package dev.eyad.skytube.client;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.function.Consumer;
 import java.util.function.DoubleConsumer;
 import java.util.function.DoubleFunction;
 import net.minecraft.client.gui.GuiGraphics;
@@ -18,6 +21,9 @@ public final class ControlScreen extends Screen {
     private int left, top, panelWidth, contentTop, row;
     private EditBox source, text, prefix;
     private Button transport;
+    private Button signIn, openVideo;
+    private final List<Button> accountWrites = new ArrayList<>();
+    private String displayedTarget = "";
     private String draftSource;
     private boolean chooseProvider;
     public ControlScreen(SkyTubeClient mod, int page) {
@@ -27,6 +33,9 @@ public final class ControlScreen extends Screen {
         this.draftSource = mod.config().source;
     }
     @Override protected void init() {
+        transport = null;
+        displayedTarget = "";
+        accountWrites.clear();
         panelWidth = Math.min(420, width - 16);
         left = (width - panelWidth) / 2;
         top = Math.max(4, (height - 226) / 2);
@@ -98,8 +107,11 @@ public final class ControlScreen extends Screen {
         toggle("Shuffle", c.shuffle, 2, 3, () -> c.shuffle = !c.shuffle);
         nextRow();
         button(String.format(Locale.ROOT, "Speed: %.2f×", c.playbackRate), 0, 3, () -> {
-            if (c.playbackRate >= 2) c.playbackRate = .25; else mod.changeRate(1);
-            mod.settingsChanged(); rebuildWidgets();
+            if (c.playbackRate >= 2) {
+                c.playbackRate = .25;
+                mod.settingsChanged();
+            } else mod.changeRate(1);
+            rebuildWidgets();
         });
         button("Go live", 1, 3, mod::liveEdge);
         button("Interact", 2, 3, () -> minecraft.setScreen(new InteractionScreen(mod)))
@@ -115,7 +127,7 @@ public final class ControlScreen extends Screen {
         slider("Cloud opacity over video", c.cloudOpacity, v -> c.cloudOpacity = v, v -> Math.round(v * 100) + "%");
         slider("Screen width", (c.angularWidth - 15) / 95, v -> c.angularWidth = 15 + v * 95, v -> Math.round(15 + v * 95) + "°");
         slider("Volume", c.volume, v -> c.volume = v, v -> Math.round(v * 100) + "%");
-        toggle("Follow view", c.followView, 0, 2, () -> c.followView = !c.followView);
+        toggle("Follow view", c.followView, 0, 2, mod::toggleFollowView);
         toggle("Live chat", c.showChat, 1, 2, () -> c.showChat = !c.showChat);
         nextRow();
         toggle("Live stream", c.live, 0, 3, () -> c.live = !c.live);
@@ -127,20 +139,20 @@ public final class ControlScreen extends Screen {
         nextRow();
     }
     private void accountPage() {
-        button(mod.account().isSignedIn() ? "Connected" : "Sign in", 0, 3, () -> mod.report(mod.account().login()));
+        signIn = button("Sign in", 0, 3, () -> mod.report(mod.account().login()));
         button("Sign out", 1, 3, () -> mod.report(mod.account().logout()));
         button("Account setup", 2, 3, mod::openSetup);
         nextRow();
-        button("Like", 0, 3, () -> mod.report(mod.account().rate(mod.currentVideoId(), "like")));
-        button("Dislike", 1, 3, () -> mod.report(mod.account().rate(mod.currentVideoId(), "dislike")));
-        button("Clear rating", 2, 3, () -> mod.report(mod.account().rate(mod.currentVideoId(), "none")));
+        accountButton("Like", 0, 3, id -> mod.report(mod.account().rate(id, "like")));
+        accountButton("Dislike", 1, 3, id -> mod.report(mod.account().rate(id, "dislike")));
+        accountButton("Clear rating", 2, 3, id -> mod.report(mod.account().rate(id, "none")));
         nextRow();
         text = addRenderableWidget(new EditBox(font, left, y(), panelWidth, 20, Component.literal("Comment or live chat message")));
         text.setMaxLength(2000);
         text.setHint(Component.literal("Comment or live chat message"));
         nextRow();
-        button("Post comment", 0, 2, () -> mod.report(mod.account().comment(mod.currentVideoId(), text.getValue())));
-        button("Send live chat", 1, 2, () -> mod.sendChat(text.getValue()));
+        accountButton("Post comment", 0, 2, id -> mod.report(mod.account().comment(id, text.getValue())));
+        accountButton("Send live chat", 1, 2, id -> mod.report(mod.account().sendChat(id, text.getValue())));
         nextRow();
         prefix = addRenderableWidget(new EditBox(font, left, y(), panelWidth / 2 - 2, 20, Component.literal("Local chat command prefix without slash")));
         prefix.setMaxLength(16);
@@ -153,12 +165,35 @@ public final class ControlScreen extends Screen {
             mod.notifyUser("Live chat: /" + value + " your message (local; never sent to the Minecraft server).");
         });
         nextRow();
-        button("Open video on YouTube", 0, 1, () -> {
-            String id = mod.currentVideoId();
-            if (id.isBlank()) mod.notifyUser("Load a video first.");
-            else net.minecraft.util.Util.getPlatform().openUri(java.net.URI.create("https://www.youtube.com/watch?v=" + id));
-        });
+        openVideo = button("Waiting for current video", 0, 1, () -> withDisplayedTarget(id ->
+                net.minecraft.util.Util.getPlatform().openUri(java.net.URI.create("https://www.youtube.com/watch?v=" + id))));
+        refreshAccountWidgets();
         nextRow();
+    }
+    private void accountButton(String label, int column, int columns, Consumer<String> action) {
+        accountWrites.add(button(label, column, columns, () -> withDisplayedTarget(action)));
+    }
+    private void withDisplayedTarget(Consumer<String> action) {
+        if (displayedTarget.isEmpty() || !displayedTarget.equals(mod.currentVideoId())) {
+            mod.notifyUser("The current video changed. Check the video shown and try again.");
+            return;
+        }
+        action.accept(displayedTarget);
+    }
+    private void refreshAccountWidgets() {
+        String target = mod.currentVideoId();
+        boolean known = !target.isEmpty();
+        if (!target.equals(displayedTarget) || openVideo.active != known) {
+            openVideo.setMessage(Component.literal(known ? "Video: " + target + " · Open on YouTube" : "Waiting for current video"));
+        }
+        displayedTarget = target;
+        openVideo.active = known;
+        for (Button button : accountWrites) button.active = known;
+        boolean canSignIn = !mod.account().isSignedIn();
+        if (signIn.active != canSignIn) {
+            signIn.active = canSignIn;
+            signIn.setMessage(Component.literal(canSignIn ? "Sign in" : "Connected"));
+        }
     }
     private void slider(String label, double value, DoubleConsumer apply, DoubleFunction<String> format) {
         addRenderableWidget(new AbstractSliderButton(left, y(), panelWidth, 20, Component.empty(), value) {
@@ -172,6 +207,7 @@ public final class ControlScreen extends Screen {
         if (transport != null) transport.setMessage(Component.literal(mod.manuallyPaused() ? "Resume" : "Pause"));
     }
     @Override public void render(GuiGraphics g, int mouseX, int mouseY, float delta) {
+        if (page == 2) refreshAccountWidgets();
         g.fill(0, 0, width, height, 0xA5101420);
         g.fill(left - 6, top - 4, left + panelWidth + 6, Math.min(height, top + 226), 0xF018202E);
         g.drawString(font, "SkyTube", left, top + 3, 0xFFFFCB7A);

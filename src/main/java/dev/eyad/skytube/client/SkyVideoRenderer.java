@@ -22,8 +22,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MappableRingBuffer;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
@@ -95,19 +93,18 @@ public final class SkyVideoRenderer implements AutoCloseable {
                 point(normal, right, up, halfWidth, -halfHeight), corners[3]};
         List<Visibility.ClipPoint> videoQuad = project(video, projectionView);
         int onScreen = 0, clear = 0;
-        Vec3 eye = camera.position();
-        double distance = Math.max(64, client.options.getEffectiveRenderDistance() * 16.0);
-        List<AABB> entityBounds = TerrainVisibility.entityBounds(client, camera, distance, normal, right, up,
-                halfWidth, halfHeight);
+        TerrainVisibility occluders = null;
         for (int y = 0; y < 12; y++) for (int x = 0; x < 20; x++) {
             float u = (x + 0.5f) / 20, v = (y + 0.5f) / 12;
             Vector3f direction = point(normal, right, up, (u * 2 - 1) * halfWidth, (1 - v * 2) * halfHeight);
             Visibility.ClipPoint projected = project(direction, projectionView);
             if (!Visibility.inFrustum(projected)) continue;
             onScreen++;
+            if (occluders == null) {
+                occluders = new TerrainVisibility(client, camera, normal, right, up, halfWidth, halfHeight);
+            }
             direction.normalize();
-            Vec3 end = eye.add(direction.x * distance, direction.y * distance, direction.z * distance);
-            if (TerrainVisibility.clear(client, camera, eye, end, entityBounds)) clear++;
+            if (occluders.clear(direction)) clear++;
         }
         visibleFraction = Visibility.fraction(videoQuad, clear, onScreen);
     }

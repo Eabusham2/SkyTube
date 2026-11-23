@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import dev.eyad.skytube.core.YouTubeSource;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,9 +23,18 @@ import java.util.concurrent.Executors;
 
 /** Loopback-only, capability-addressed bridge between the client thread and the embedded page. */
 public final class WebPlayerServer implements AutoCloseable {
-    public record Status(boolean pageReady, boolean ready, int state, String videoId, double currentTime,
-                         double duration, double playbackRate, String message, boolean userPaused, long appliedCommand) {
-        static final Status EMPTY = new Status(false, false, -1, "", 0, 0, 1, "", false, 0);
+    public record Status(boolean pageReady, boolean ready, int state, String videoId, String confirmedTargetVideoId,
+                         double currentTime, double duration, double playbackRate, String message,
+                         boolean userPaused, long appliedCommand, long receivedNanos) {
+        static final Status EMPTY = new Status(false, false, -1, "", "", 0, 0, 1, "", false, 0, 0);
+
+        public String accountTarget(YouTubeSource source, long selectionCommand, long nowNanos) {
+            if (source == null || !ready || appliedCommand < selectionCommand ||
+                    nowNanos - receivedNanos > 5_000_000_000L || confirmedTargetVideoId.isEmpty() ||
+                    !confirmedTargetVideoId.equals(videoId)) return "";
+            if (!source.isPlaylist() && !confirmedTargetVideoId.equals(source.videoId())) return "";
+            return confirmedTargetVideoId;
+        }
     }
 
     private static final Gson JSON = new Gson();
@@ -137,11 +147,10 @@ public final class WebPlayerServer implements AutoCloseable {
     private synchronized JsonArray sync(JsonObject request) {
         long ack = request.get("ack").getAsLong();
         JsonObject s = request.getAsJsonObject("status");
-        String videoId = string(s, "videoId", 11);
         status = new Status(true, s.get("ready").getAsBoolean(), s.get("state").getAsInt(),
-                videoId.matches("[A-Za-z0-9_-]{11}") ? videoId : "", number(s, "currentTime"),
+                videoId(s, "videoId"), videoId(s, "confirmedTargetVideoId"), number(s, "currentTime"),
                 number(s, "duration"), number(s, "playbackRate"), string(s, "message", 240),
-                s.get("userPaused").getAsBoolean(), ack);
+                s.get("userPaused").getAsBoolean(), ack, System.nanoTime());
         while (!pending.isEmpty() && pending.peekFirst().get("id").getAsLong() <= ack) pending.removeFirst();
         JsonArray response = new JsonArray();
         for (JsonObject item : pending) response.add(item);
@@ -152,6 +161,11 @@ public final class WebPlayerServer implements AutoCloseable {
         JsonElement value = source.get(key);
         String text = value == null || value.isJsonNull() ? "" : value.getAsString();
         return text.substring(0, Math.min(text.length(), max));
+    }
+
+    private static String videoId(JsonObject source, String key) {
+        String id = string(source, key, 12);
+        return id.matches("[A-Za-z0-9_-]{11}") ? id : "";
     }
 
     private static double number(JsonObject source, String key) {

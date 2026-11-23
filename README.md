@@ -12,7 +12,7 @@ Paste a video, live stream or playlist, center its screen where you are looking,
 2. Add these separate dependencies to that instance's `mods` folder:
    - [Fabric API for 1.21.11](https://modrinth.com/mod/fabric-api/versions?g=1.21.11), **0.141.6+1.21.11 or newer**.
    - [MCEF Modern 0.3.3+mc1.21.11.jcef146.0.10](https://modrinth.com/mod/mcef-modern/version/NfheQM6w). Use **MCEF Modern**, not the legacy MCEF mod.
-3. Download the normal `skytube-fabric-1.21.11-1.0.0.jar` from Releases and put it in the same `mods` folder. The `-sources.jar` is for developers.
+3. Download the normal `skytube-fabric-1.21.11-1.0.1.jar` from Releases and put it in the same `mods` folder. The `-sources.jar` is for developers.
 4. Start the game and enter a world. Press **Y**.
 
 The first video initializes MCEF asynchronously and may download its Chromium native bundle. SkyTube displays initialization progress. The game and the browser need internet access. This is a client mod: a server does not need to install it, and other players do not see your screen or hear its audio.
@@ -61,7 +61,7 @@ The provider dropdown is available when loading links and can also change an exi
 
 The display is an actual perspective-projected sky plane, rendered before terrain. It follows the player's position while retaining its chosen direction, so walking does not leave it behind. Terrain and entities render naturally in front of it. The optional chat panel is appended on the right; the **video remains centered**.
 
-The visibility threshold uses the video's frustum-clipped projected area plus an occlusion sample grid. It samples **20 × 12 rays at most ten times per second**. Short debounce intervals avoid rapid play/pause flicker at the threshold. This is an estimate rather than pixel-perfect measurement of every transparent pixel, entity silhouette, particle or shader effect. The chat sidebar does not count toward the video's visibility percentage.
+The visibility threshold uses the video's frustum-clipped projected area plus an occlusion sample grid. It samples **20 × 12 rays at most ten times per second**, using the current rendered terrain sections and entity bounds. This includes overhead blocks beyond the horizontal render-distance radius and excludes loaded sections that are not drawn. Short debounce intervals avoid rapid play/pause flicker at the threshold. This is an estimate rather than pixel-perfect measurement of every transparent pixel, entity silhouette, particle or shader effect. HUD elements and the chosen cloud opacity are not subtracted from this estimate. The chat sidebar does not count toward the video's visibility percentage.
 
 Cloud opacity is applied only inside the projected display area, including its chat sidebar. **0%** hides those cloud fragments; **100%** restores vanilla clouds. Clouds outside the display retain their normal appearance. The implementation handles vanilla Fast and Fancy cloud pipelines; render-replacing shader packs and other mods that replace cloud/world rendering require separate compatibility testing.
 
@@ -81,7 +81,7 @@ The Account page has Sign in, Sign out, Like, Dislike, Clear rating, Post commen
 /yt your live chat message
 ```
 
-The prefix can be changed in the popup. Matching commands are consumed locally and **never sent to the Minecraft server**, even when sign-in is missing or a YouTube request fails. A comment or rating is sent only when you press its button; entering text alone does not post it.
+The prefix can be changed in the popup. Matching commands are consumed locally and **never sent to the Minecraft server**, even when sign-in is missing or a YouTube request fails. Matching drafts are also excluded from server command-completion requests. A comment or rating is sent only when you press its button; entering text alone does not post it. The Account page shows the confirmed current video ID and disables writes during playlist/provider transitions; a button cannot silently act on a different item from the one it displayed.
 
 Google account actions require a **Desktop OAuth client JSON** from your own Google Cloud project with YouTube Data API v3 enabled. See [the complete setup steps](docs/ACCOUNT_SETUP.md). Sign-in opens Google's authorization screen in your normal browser. SkyTube does not ask for a Google password or try to sign into an embedded browser. This OAuth session authorizes API actions; it does not share your normal browser's YouTube cookies or Premium playback session with MCEF.
 
@@ -103,8 +103,8 @@ GitHub Actions builds and runs the Java and JavaScript suites on Linux, Windows 
 The release workflow validates the tag against `mod_version`, builds remapped JARs, checks their metadata and archive integrity, generates SHA-256 checksums, and publishes release assets. Create a version tag after changing `mod_version`, for example:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 The release workflow can also be manually dispatched for an existing tag. It verifies existing published asset hashes rather than replacing a published version with different files.

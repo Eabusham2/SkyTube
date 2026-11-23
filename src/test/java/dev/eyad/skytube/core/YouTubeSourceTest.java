@@ -36,8 +36,19 @@ class YouTubeSourceTest {
 
     @Test
     void retainsVideoAndPlaylistFromShareLink() {
-        assertEquals(new YouTubeSource(VIDEO, LIST, 70),
+        assertEquals(new YouTubeSource(VIDEO, LIST, 70, 1),
                 YouTubeSource.parse("https://youtu.be/" + VIDEO + "?list=" + LIST + "&index=2&t=1m10s"));
+    }
+
+    @Test
+    void preservesPlaylistOnlyPositionAndMaximumLengthIdentifier() {
+        String id = "PL" + "a".repeat(126);
+        assertEquals(new YouTubeSource(null, id, 8, 2),
+                YouTubeSource.parse("youtube.com/playlist?list=" + id + "&index=3&t=8"));
+        for (String position : new String[]{"0", "-1", "2.3", "9999999999"}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> YouTubeSource.parse("youtube.com/playlist?list=" + id + "&index=" + position));
+        }
     }
 
     @ParameterizedTest

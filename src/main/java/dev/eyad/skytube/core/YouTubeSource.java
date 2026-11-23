@@ -11,7 +11,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Provider identifiers only. No user-supplied URL or query is forwarded to the browser. */
-public record YouTubeSource(String videoId, String playlistId, int startSeconds) {
+public record YouTubeSource(String videoId, String playlistId, int startSeconds, Integer index) {
     private static final Pattern VIDEO = Pattern.compile("[A-Za-z0-9_-]{11}");
     private static final Pattern PLAYLIST = Pattern.compile("[A-Za-z0-9_-]{2,128}");
     private static final Pattern RAW_PLAYLIST = Pattern.compile("(?:PL|UU|LL|FL|RD|UL|TL|OLAK5uy_)[A-Za-z0-9_-]+|WL|HL");
@@ -22,7 +22,11 @@ public record YouTubeSource(String videoId, String playlistId, int startSeconds)
             "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
             "youtube-nocookie.com", "www.youtube-nocookie.com", "youtu.be",
             "yout-ube.com", "www.yout-ube.com", "m.yout-ube.com", "music.yout-ube.com");
-    private static final Set<String> PARAMETERS = Set.of("v", "list", "t", "start", "time_continue", "listType");
+    private static final Set<String> PARAMETERS = Set.of("v", "list", "index", "t", "start", "time_continue", "listType");
+
+    public YouTubeSource(String videoId, String playlistId, int startSeconds) {
+        this(videoId, playlistId, startSeconds, null);
+    }
 
     public YouTubeSource {
         if (videoId == null && playlistId == null) {
@@ -36,6 +40,9 @@ public record YouTubeSource(String videoId, String playlistId, int startSeconds)
         }
         if (startSeconds < 0) {
             throw new IllegalArgumentException("The start time must be zero or greater.");
+        }
+        if (index != null && (playlistId == null || index < 0)) {
+            throw new IllegalArgumentException("The playlist position is invalid.");
         }
     }
 
@@ -99,7 +106,17 @@ public record YouTubeSource(String videoId, String playlistId, int startSeconds)
         if (time == null && uri.getRawFragment() != null) {
             time = parameters(uri.getRawFragment()).get("t");
         }
-        return new YouTubeSource(video, playlist, time == null ? 0 : parseTime(time));
+        // YouTube share links count from one. The IFrame API counts from zero.
+        Integer index = null;
+        if (playlist != null && query.containsKey("index")) {
+            String position = query.get("index");
+            long number = SECONDS.matcher(position).matches() ? Long.parseLong(position) : 0;
+            if (number < 1 || number > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("The playlist position must be a positive whole number.");
+            }
+            index = (int) number - 1;
+        }
+        return new YouTubeSource(video, playlist, time == null ? 0 : parseTime(time), index);
     }
 
     private static IllegalArgumentException unsupported() {

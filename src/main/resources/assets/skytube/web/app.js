@@ -11,15 +11,30 @@ function youtubeApi() {
     if (!api) {
         api = new Promise((resolve, reject) => {
             const script = document.createElement("script");
+            let settled = false;
             const failed = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeout);
                 script.remove();
+                // The bootstrap sets YT.loading before its second script has loaded.
+                // Clear the incomplete SDK so reopening can start a fresh download.
+                if (!window.YT?.Player && window.YT?.loading) {
+                    document.getElementById("www-widgetapi-script")?.remove();
+                    window.YT = undefined;
+                }
                 api = null;
                 reject(new Error("YouTube could not load. Check your connection and reopen the video."));
             };
             const timeout = setTimeout(failed, 25000);
-            window.onYouTubeIframeAPIReady = () => { clearTimeout(timeout); resolve(window.YT); };
+            window.onYouTubeIframeAPIReady = () => {
+                if (settled || !window.YT?.Player) return;
+                settled = true;
+                clearTimeout(timeout);
+                resolve(window.YT);
+            };
             script.onload = () => { if (window.YT?.Player) window.onYouTubeIframeAPIReady(); };
-            script.onerror = () => { clearTimeout(timeout); failed(); };
+            script.onerror = failed;
             script.src = "https://www.youtube.com/iframe_api";
             document.head.append(script);
         });

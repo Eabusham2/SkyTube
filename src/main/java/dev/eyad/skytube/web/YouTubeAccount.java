@@ -48,10 +48,13 @@ public final class YouTubeAccount implements AutoCloseable {
     private final String revokeEndpoint;
     private final Consumer<URI> openBrowser;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(12)).build();
-    private final ExecutorService worker = Executors.newSingleThreadExecutor(Thread.ofPlatform().daemon().name("SkyTube account").factory());
+    private final ExecutorService worker;
     private volatile boolean signedIn;
     private volatile CompletableFuture<String> activeLogin;
-    private volatile CompletableFuture<String> callback;
+    private volatile LoginAttempt loginAttempt;
+    private volatile boolean signOutRequested;
+    private CompletableFuture<String> activeLogout;
+    private boolean localSignOutSaved;
     private String access = "";
     private String refresh = "";
     private Instant expires = Instant.EPOCH;
@@ -61,6 +64,13 @@ public final class YouTubeAccount implements AutoCloseable {
     }
 
     YouTubeAccount(Path configDir, Consumer<URI> openBrowser, String tokenEndpoint, String dataEndpoint, String revokeEndpoint) {
+        this(configDir, openBrowser, tokenEndpoint, dataEndpoint, revokeEndpoint,
+                Executors.newSingleThreadExecutor(Thread.ofPlatform().daemon().name("SkyTube account").factory()));
+    }
+
+    YouTubeAccount(Path configDir, Consumer<URI> openBrowser, String tokenEndpoint, String dataEndpoint,
+                   String revokeEndpoint, ExecutorService worker) {
+        this.worker = worker;
         this.tokenEndpoint = tokenEndpoint;
         this.dataEndpoint = dataEndpoint;
         this.revokeEndpoint = revokeEndpoint;
@@ -75,84 +85,119 @@ public final class YouTubeAccount implements AutoCloseable {
         });
     }
 
-    public boolean isSignedIn() { return signedIn; }
+    public boolean isSignedIn() {
+        LoginAttempt pending = loginAttempt;
+        return signedIn && !signOutRequested && (pending == null || !pending.canceled);
+    }
 
     public synchronized CompletableFuture<String> login() {
         if (activeLogin != null && !activeLogin.isDone()) return activeLogin;
+        // Publish cancellation before queueing work: Sign out can arrive before the worker starts.
+        LoginAttempt attempt = new LoginAttempt();
+        loginAttempt = attempt;
         activeLogin = task(() -> {
-            if (signedIn) return "YouTube account is connected.";
-            var client = credentials();
-            String state = random(32);
-            String verifier = random(48);
-            String challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
-                    MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII)));
-            HttpServer listener = HttpServer.create(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 4);
-            String authority = "127.0.0.1:" + listener.getAddress().getPort();
-            String redirect = "http://" + authority;
-            CompletableFuture<String> authorization = new CompletableFuture<>();
-            callback = authorization;
-            listener.createContext("/", exchange -> {
-                try (exchange) {
-                    if (!exchange.getRequestMethod().equals("GET") || !exchange.getRequestURI().getPath().equals("/")
-                            || !authority.equals(exchange.getRequestHeaders().getFirst("Host"))) {
-                        exchange.sendResponseHeaders(404, -1);
-                        return;
-                    }
-                    Map<String, String> query;
-                    try { query = parseQuery(exchange.getRequestURI().getRawQuery()); }
-                    catch (IllegalArgumentException invalid) { exchange.sendResponseHeaders(400, -1); return; }
-                    if (!state.equals(query.get("state"))) { exchange.sendResponseHeaders(403, -1); return; }
-                    String code = query.get("code");
-                    boolean accepted = code != null && !code.isBlank() && !query.containsKey("error");
-                    String message = accepted ? "SkyTube received Google's response. Return to Minecraft."
-                            : "YouTube authorization was canceled. Return to Minecraft.";
-                    byte[] bytes = message.getBytes(StandardCharsets.UTF_8);
-                    exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
-                    exchange.getResponseHeaders().set("Cache-Control", "no-store");
-                    exchange.getResponseHeaders().set("Referrer-Policy", "no-referrer");
-                    exchange.sendResponseHeaders(200, bytes.length);
-                    try (var out = exchange.getResponseBody()) { out.write(bytes); }
-                    if (accepted) authorization.complete(code);
-                    else authorization.completeExceptionally(new AccountError("YouTube authorization was canceled."));
+            try { return signIn(attempt); }
+            finally {
+                synchronized (this) {
+                    if (attempt.canceled) signedIn = false;
+                    if (loginAttempt == attempt) loginAttempt = null;
                 }
-            });
-            listener.start();
-            try {
-                String params = form(Map.of("client_id", client.id(), "redirect_uri", redirect, "response_type", "code",
-                        "scope", SCOPE, "state", state, "code_challenge", challenge, "code_challenge_method", "S256",
-                        "access_type", "offline", "prompt", "consent"));
-                openBrowser.accept(URI.create("https://accounts.google.com/o/oauth2/v2/auth?" + params));
-                String code;
-                try { code = authorization.get(3, TimeUnit.MINUTES); }
-                catch (TimeoutException ex) { throw new AccountError("YouTube sign-in timed out. Open Sign in to try again."); }
-                catch (ExecutionException ex) { throw new AccountError("YouTube sign-in was canceled."); }
-                JsonObject tokens = tokenRequest(client, Map.of("grant_type", "authorization_code",
-                        "redirect_uri", redirect, "code", code, "code_verifier", verifier));
-                if (tokens.has("scope") && !Set.of(tokens.get("scope").getAsString().split(" ")).contains(SCOPE)) {
-                    throw new AccountError("YouTube access was not granted. Choose the YouTube permission during sign-in.");
-                }
-                setAccess(tokens);
-                refresh = tokens.has("refresh_token") ? tokens.get("refresh_token").getAsString() : "";
-                signedIn = true;
-                if (!refresh.isEmpty()) {
-                    try {
-                        store.save(refresh);
-                        return "YouTube account connected.";
-                    } catch (IOException ignored) { /* Use this session only if an OS vault is unavailable. */ }
-                }
-                return "YouTube account connected for this game session.";
-            } finally {
-                listener.stop(0);
-                callback = null;
             }
         });
         return activeLogin;
     }
 
-    public CompletableFuture<String> logout() {
-        var pending = callback;
-        if (pending != null) pending.completeExceptionally(new AccountError("Sign-in canceled."));
-        return task(() -> {
+    private String signIn(LoginAttempt attempt) throws Exception {
+        synchronized (this) {
+            attempt.checkActive();
+            signOutRequested = false;
+            store.allowNewLogin();
+        }
+        if (signedIn) return "YouTube account is connected.";
+        var client = credentials();
+        String state = random(32);
+        String verifier = random(48);
+        String challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII)));
+        HttpServer listener = HttpServer.create(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 4);
+        String authority = "127.0.0.1:" + listener.getAddress().getPort();
+        String redirect = "http://" + authority;
+        CompletableFuture<String> authorization = attempt.authorization;
+        listener.createContext("/", exchange -> {
+            try (exchange) {
+                if (!exchange.getRequestMethod().equals("GET") || !exchange.getRequestURI().getPath().equals("/")
+                        || !authority.equals(exchange.getRequestHeaders().getFirst("Host"))) {
+                    exchange.sendResponseHeaders(404, -1);
+                    return;
+                }
+                Map<String, String> query;
+                try { query = parseQuery(exchange.getRequestURI().getRawQuery()); }
+                catch (IllegalArgumentException invalid) { exchange.sendResponseHeaders(400, -1); return; }
+                if (!state.equals(query.get("state"))) { exchange.sendResponseHeaders(403, -1); return; }
+                String code = query.get("code");
+                boolean accepted = code != null && !code.isBlank() && !query.containsKey("error");
+                String message = accepted ? "SkyTube received Google's response. Return to Minecraft."
+                        : "YouTube authorization was canceled. Return to Minecraft.";
+                byte[] bytes = message.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+                exchange.getResponseHeaders().set("Cache-Control", "no-store");
+                exchange.getResponseHeaders().set("Referrer-Policy", "no-referrer");
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) { out.write(bytes); }
+                if (accepted) authorization.complete(code);
+                else authorization.completeExceptionally(new AccountError("YouTube authorization was canceled."));
+            }
+        });
+        listener.start();
+        try {
+            String params = form(Map.of("client_id", client.id(), "redirect_uri", redirect, "response_type", "code",
+                    "scope", SCOPE, "state", state, "code_challenge", challenge, "code_challenge_method", "S256",
+                    "access_type", "offline", "prompt", "consent"));
+            attempt.checkActive();
+            openBrowser.accept(URI.create("https://accounts.google.com/o/oauth2/v2/auth?" + params));
+            String code;
+            try { code = authorization.get(3, TimeUnit.MINUTES); }
+            catch (TimeoutException ex) { throw new AccountError("YouTube sign-in timed out. Open Sign in to try again."); }
+            catch (ExecutionException ex) { throw new AccountError("YouTube sign-in was canceled."); }
+            attempt.checkActive();
+            JsonObject tokens = tokenRequest(client, Map.of("grant_type", "authorization_code",
+                    "redirect_uri", redirect, "code", code, "code_verifier", verifier));
+            if (tokens.has("scope") && !Set.of(tokens.get("scope").getAsString().split(" ")).contains(SCOPE)) {
+                throw new AccountError("YouTube access was not granted. Choose the YouTube permission during sign-in.");
+            }
+            setAccess(tokens);
+            refresh = tokens.has("refresh_token") ? tokens.get("refresh_token").getAsString() : "";
+            // A concurrent Sign out still needs the returned token to revoke it, but must not
+            // persist it or expose a connected account while waiting for its queued cleanup.
+            attempt.checkActive();
+            signedIn = true;
+            if (!refresh.isEmpty()) {
+                try {
+                    store.save(refresh);
+                    attempt.checkActive();
+                    return "YouTube account connected.";
+                } catch (IOException ignored) { /* Use this session only if an OS vault is unavailable. */ }
+            }
+            attempt.checkActive();
+            return "YouTube account connected for this game session.";
+        } finally {
+            listener.stop(0);
+        }
+    }
+
+    public synchronized CompletableFuture<String> logout() {
+        signOutRequested = true;
+        var pending = loginAttempt;
+        if (pending != null) pending.cancel();
+        signedIn = false;
+        try {
+            store.markSignedOut();
+            localSignOutSaved = true;
+        } catch (IOException failure) {
+            localSignOutSaved = false; // The worker retries. Shutdown must report a failed local save.
+        }
+        if (activeLogout != null && !activeLogout.isDone()) return activeLogout;
+        activeLogout = task(() -> {
             String token = refresh.isBlank() ? access : refresh;
             access = refresh = "";
             expires = Instant.EPOCH;
@@ -167,6 +212,7 @@ public final class YouTubeAccount implements AutoCloseable {
             }
             return cleared ? "YouTube account disconnected." : "Disconnected. Check your operating system’s credential store.";
         });
+        return activeLogout;
     }
 
     public CompletableFuture<String> rate(String videoId, String rating) {
@@ -211,7 +257,7 @@ public final class YouTubeAccount implements AutoCloseable {
     }
 
     private JsonObject data(String method, String path, Object body) throws Exception {
-        if (!signedIn) throw new AccountError("Connect a YouTube account in SkyTube first.");
+        if (!isSignedIn()) throw new AccountError("Connect a YouTube account in SkyTube first.");
         if (Instant.now().plusSeconds(60).isAfter(expires)) {
             if (refresh.isBlank()) throw new AccountError("YouTube sign-in expired. Disconnect and sign in again.");
             try { setAccess(tokenRequest(credentials(), Map.of("grant_type", "refresh_token", "refresh_token", refresh))); }
@@ -320,6 +366,20 @@ public final class YouTubeAccount implements AutoCloseable {
         AccountError(String message, String reason) { super(message); this.reason = reason; }
     }
 
+    private static final class LoginAttempt {
+        final CompletableFuture<String> authorization = new CompletableFuture<>();
+        volatile boolean canceled;
+
+        void cancel() {
+            canceled = true;
+            authorization.completeExceptionally(new AccountError("YouTube sign-in was canceled."));
+        }
+
+        void checkActive() throws AccountError {
+            if (canceled) throw new AccountError("YouTube sign-in was canceled.");
+        }
+    }
+
     private CompletableFuture<String> task(Action action) {
         return CompletableFuture.supplyAsync(() -> {
             try { return action.run(); }
@@ -331,9 +391,18 @@ public final class YouTubeAccount implements AutoCloseable {
     }
 
     @Override public void close() {
-        var pending = callback;
-        if (pending != null) pending.completeExceptionally(new AccountError("Game closed."));
-        worker.shutdownNow();
-        http.shutdown();
+        CompletableFuture<String> logout;
+        String result;
+        synchronized (this) {
+            var pending = loginAttempt;
+            if (pending != null) pending.cancel();
+            worker.shutdownNow();
+            http.shutdown();
+            logout = activeLogout;
+            result = localSignOutSaved
+                    ? "Disconnected locally. Check Google Account permissions to confirm revocation."
+                    : "Sign-out cleanup was interrupted. Check your operating system’s credential store and Google Account permissions.";
+        }
+        if (logout != null) logout.complete(result);
     }
 }

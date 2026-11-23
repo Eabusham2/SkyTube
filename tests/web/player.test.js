@@ -23,6 +23,7 @@ function fixture() {
         pauseVideo() { calls.push(["pause"]); },
         nextVideo() { calls.push(["next"]); },
         previousVideo() { calls.push(["prev"]); },
+        playVideoAt(i) { calls.push(["playAt", i]); },
         setShuffle(value) { calls.push(["shuffle", value]); },
         seekTo(value) { calls.push(["seek", value]); position = value; },
         loadPlaylist(value) { calls.push(["loadPlaylist", value]); index = value.index; },
@@ -83,6 +84,16 @@ test("visibility pause is distinct from manual iframe pause and releasing manual
     assert.equal(f.controller.status().userPaused, true);
 });
 
+test("switching the provider while a timestamped video is cued preserves its unplayed start", () => {
+    const f = fixture();
+    f.setPosition(0); f.open({videoId: A, startSeconds: 90, autoplay: false});
+    f.state(5); f.command("provider", "youtube");
+    assert.equal(f.created.at(-1).source.startSeconds, 90);
+    f.events.at(-1).ready(f.player); f.command("play"); f.state(1);
+    f.command("seek", 0); f.command("provider", "nocookie");
+    assert.equal(f.created.at(-1).source.startSeconds, 0);
+});
+
 test("commands during iframe startup preserve gate and ignore stale callbacks after replacement", () => {
     const f = fixture();
     f.command("load", {videoId: A});
@@ -110,7 +121,7 @@ test("watch-and-list selects requested item before shuffling; navigation preserv
     f.command("prev");
     assert.deepEqual(f.calls.at(-1), ["cuePlaylist", [A, B], 0]);
     f.command("play"); f.state(1); f.command("next"); f.command("prev");
-    assert.deepEqual(f.calls.slice(-2), [["next"], ["prev"]]);
+    assert.deepEqual(f.calls.slice(-2), [["playAt", 1], ["playAt", 0]]);
 });
 
 test("low latency only attempts to follow the estimated live edge and respects DVR rewind", () => {
@@ -132,13 +143,16 @@ test("low latency only attempts to follow the estimated live edge and respects D
 test("chat follows playlist transitions and player errors reach status", () => {
     const f = fixture();
     f.open({videoId: A, playlistId: "PLfoo"}); f.command("chat", true);
+    assert.deepEqual(f.chat.at(-1), [true, ""]);
+    f.setList([A, B], 0); f.advance(120);
     assert.deepEqual(f.chat.at(-1), [true, A]);
-    f.setList([A, B], 0); f.advance(120); f.setList([A, B], 1); f.state(1);
+    f.state(1); f.setList([A, B], 1); f.advance(120);
     assert.deepEqual(f.chat.at(-1), [true, B]);
     f.events.at(-1).blocked();
     assert.match(f.controller.status().message, /click/);
     f.events.at(-1).error("Video unavailable");
     assert.equal(f.controller.status().message, "Video unavailable");
+    assert.equal(f.controller.status().confirmedTargetVideoId, "");
 });
 
 test("YouTube's own DVR scrubber suspends catch-up even when unrelated settings are reapplied", () => {
@@ -176,9 +190,71 @@ test("a late PAUSED event from an earlier pause cannot undo native resume in the
     f.command("manualPause", true);
     f.command("manualPause", false);
     f.command("play");
+    f.advance(6500);
     f.focus(false); f.state(2);
     assert.equal(f.controller.status().userPaused, false, "native resume wins over the earlier pause");
     assert.deepEqual(f.calls.slice(-2), [["play"], ["play"]], "resume is reissued once after the late pause");
     f.state(1); f.focus(true); f.state(2);
     assert.equal(f.controller.status().userPaused, true, "a later click on the focused player still pauses");
+});
+
+test("navigation withholds account writes and chat until both playlist position and video metadata catch up", () => {
+    const f = fixture();
+    f.setList([A, B], 0);
+    f.open({videoId: A, playlistId: "PLfoo"}); f.state(1); f.command("chat", true);
+    assert.equal(f.controller.status().confirmedTargetVideoId, A);
+    f.command("next"); f.state(1);
+    assert.equal(f.controller.status().confirmedTargetVideoId, "");
+    assert.deepEqual(f.chat.at(-1), [true, ""]);
+    f.player.getVideoUrl = () => "https://www.youtube.com/watch?v=" + A;
+    f.setList([A, B], 1); f.advance(120);
+    assert.equal(f.controller.status().confirmedTargetVideoId, "");
+    f.player.getVideoUrl = () => "https://www.youtube.com/watch?v=" + B;
+    f.advance(120);
+    assert.equal(f.controller.status().confirmedTargetVideoId, B);
+    assert.deepEqual(f.chat.at(-1), [true, B]);
+    f.command("provider", "youtube");
+    assert.equal(f.controller.status().confirmedTargetVideoId, "");
+});
+
+test("natural playlist advance clears the previous account target before the new ID is reported", () => {
+    const f = fixture();
+    f.setList([A, B], 0); f.open({playlistId: "PLfoo"}); f.state(1);
+    f.state(0); f.state(1);
+    assert.equal(f.controller.status().confirmedTargetVideoId, "");
+    f.setList([A, B], 1); f.advance(120);
+    assert.equal(f.controller.status().confirmedTargetVideoId, B);
+});
+
+test("rapid Next clicks select absolute positions while previous iframe metadata is still visible", () => {
+    const f = fixture(), third = "12345678901";
+    f.setList([A, B, third], 0); f.open({playlistId: "PLfoo"}); f.state(1);
+    f.command("next"); f.command("next");
+    assert.deepEqual(f.calls.slice(-2), [["playAt", 1], ["playAt", 2]]);
+    f.setList([A, B, third], 1); f.state(1);
+    assert.equal(f.controller.status().confirmedTargetVideoId, "");
+    f.setList([A, B, third], 2); f.advance(120);
+    assert.equal(f.controller.status().confirmedTargetVideoId, third);
+});
+
+test("an unavailable playlist entry permits the confirmed replacement and never restores the departed target", () => {
+    const f = fixture(), third = "12345678901";
+    f.setList([A, B, third], 0); f.open({playlistId: "PLfoo"}); f.state(1);
+    f.command("next"); f.events.at(-1).error("Video unavailable");
+    f.state(1); f.advance(120);
+    assert.equal(f.controller.status().confirmedTargetVideoId, "");
+    f.setList([A, B, third], 2); f.state(1); f.advance(120);
+    assert.equal(f.controller.status().confirmedTargetVideoId, third);
+});
+
+test("playlist URL position disambiguates repeated IDs and playlist-only links accept 128 characters", () => {
+    const f = fixture();
+    f.setList([A, B, A], 0);
+    f.open({videoId: A, playlistId: "PLtest", index: 2, startSeconds: 9, autoplay: false});
+    assert.equal(f.calls.at(-1)[1].index, 2);
+    const id = "PL" + "a".repeat(126);
+    f.open({playlistId: id, index: 1, startSeconds: 9, autoplay: false});
+    assert.deepEqual(f.calls.at(-1)[1], {listType: "playlist", list: id, index: 1, startSeconds: 9});
+    f.command("load", {playlistId: id + "X"});
+    assert.equal(f.created.length, 2);
 });
