@@ -258,3 +258,116 @@ test("playlist URL position disambiguates repeated IDs and playlist-only links a
     f.command("load", {playlistId: id + "X"});
     assert.equal(f.created.length, 2);
 });
+
+test("relative rewind uses the unplayed cue time and still clamps at zero", () => {
+    const f = fixture();
+    f.setPosition(0); f.open({videoId: A, startSeconds: 90, autoplay: false}); f.state(5);
+    f.command("seekBy", -10); f.command("seekBy", -100);
+    assert.deepEqual(f.calls.filter(c => c[0] === "seek"), [["seek", 80], ["seek", 0]]);
+    assert.equal(f.calls.some(c => c[0] === "play"), false);
+});
+
+test("a pause acknowledgement before first play preserves the cue until an explicit seek to zero", () => {
+    const f = fixture();
+    f.setPosition(0); f.open({videoId: A, startSeconds: 90, autoplay: false});
+    f.command("pause"); f.state(2); f.command("seekBy", -10);
+    assert.deepEqual(f.calls.at(-1), ["seek", 80]);
+    f.command("seek", 0); f.command("provider", "youtube");
+    assert.equal(f.created.at(-1).source.startSeconds, 0);
+});
+
+test("after playback an iframe scrub to zero is the position for rewind and host changes", () => {
+    function scrubPausedVideoToZero() {
+        const f = fixture();
+        f.open({videoId: A}); f.state(1); f.setPosition(90);
+        f.command("manualPause", true); f.state(2); f.command("seekBy", -10);
+        assert.deepEqual(f.calls.at(-1), ["seek", 80]);
+        f.setPosition(0); f.state(2);
+        return f;
+    }
+    const rewind = scrubPausedVideoToZero();
+    rewind.command("seekBy", -10);
+    const switched = scrubPausedVideoToZero();
+    switched.command("provider", "youtube");
+    assert.deepEqual([rewind.calls.at(-1), switched.created.at(-1).source.startSeconds], [["seek", 0], 0]);
+});
+
+test("unshuffle restores the selected duplicate occurrence after paused navigation", () => {
+    const f = fixture(), C = "12345678901";
+    f.setList([A, B, A, C], 1); f.open({playlistId: "PLdupes", autoplay: false});
+    f.command("shuffle", true); f.setList([B, A, A, C], 0);
+    f.command("next"); f.advance(120); f.command("next"); f.advance(120);
+    f.command("shuffle", false);
+    assert.deepEqual(f.calls.at(-1)[1], {listType: "playlist", list: "PLdupes", index: 2, startSeconds: 100});
+});
+
+test("unshuffle retains a known original duplicate even if the SDK shuffles it ahead of its twin", () => {
+    const f = fixture(), C = "12345678901";
+    f.setList([A, B, A, C], 2); f.open({videoId: A, playlistId: "PLdupes", index: 2, autoplay: false});
+    f.command("shuffle", true); f.setList([A, C, B, A], 0);
+    f.command("next"); f.advance(120); f.command("prev"); f.advance(120);
+    f.command("shuffle", false);
+    assert.equal(f.calls.at(-1)[1].index, 2);
+});
+
+test("selecting the other copy inside the iframe cannot move a known shuffled occurrence", () => {
+    const f = fixture(), C = "12345678901", original = [A, B, A, C], shuffled = [A, C, B, A];
+    f.setList(original, 2); f.open({videoId: A, playlistId: "PLdupes", index: 2, autoplay: false});
+    f.command("shuffle", true); f.setList(shuffled, 0); f.state(5); f.advance(120);
+    f.setList(shuffled, 3); f.state(5); f.advance(120);
+    f.command("provider", "youtube"); f.setList(original, 0); f.events.at(-1).ready(f.player);
+    f.setList(shuffled, 3); f.state(5);
+    f.command("shuffle", false);
+    assert.equal(f.calls.at(-1)[1].index, 0);
+});
+
+test("host changes keep the same shuffled queue, paused time and subsequent original order", () => {
+    const f = fixture(), C = "12345678901", original = [A, B, C], shuffled = [C, B, A];
+    f.setList(original, 1); f.open({playlistId: "PLorder"}); f.state(1);
+    f.command("shuffle", true); f.setList(shuffled, 1);
+    f.command("manualPause", true); f.state(2); f.setPosition(43);
+    f.command("provider", "youtube"); f.command("provider", "nocookie");
+    const beforeReady = f.calls.length;
+    f.setList(original, 1); f.events.at(-1).ready(f.player);
+    assert.deepEqual(f.calls.at(-1), ["cuePlaylist", {listType: "playlist", list: shuffled, index: 1, startSeconds: 43}, undefined]);
+    assert.equal(f.controller.status().confirmedTargetVideoId, "", "old order can report the same video and index");
+    assert.equal(f.calls.slice(beforeReady).some(c => c[0] === "play" || c[0] === "shuffle"), false);
+    f.setList(shuffled, 1); f.state(5);
+    assert.equal(f.controller.status().confirmedTargetVideoId, B);
+    assert.equal(f.controller.status().userPaused, true);
+    f.command("next"); f.setPosition(0); f.advance(120);
+    assert.equal(f.controller.status().confirmedTargetVideoId, A);
+    f.command("shuffle", false);
+    assert.deepEqual(f.calls.at(-1)[1], {listType: "playlist", list: "PLorder", index: 0, startSeconds: 0});
+});
+
+test("host changes carry rapid pending navigation in shuffled order without confirming stale metadata", () => {
+    const f = fixture(), C = "12345678901", original = [A, B, C], shuffled = [B, C, A];
+    f.setList(original, 1); f.open({playlistId: "PLorder"}); f.state(1);
+    f.command("shuffle", true); f.setList(shuffled, 0);
+    f.command("next"); f.command("next"); f.command("provider", "youtube");
+    f.setList(original, 0); f.events.at(-1).ready(f.player);
+    assert.deepEqual(f.calls.at(-1), ["loadPlaylist", {listType: "playlist", list: shuffled, index: 2, startSeconds: 0}]);
+    f.setList(original, 0); f.state(1);
+    assert.equal(f.controller.status().confirmedTargetVideoId, "");
+    f.setList(shuffled, 2); f.state(1);
+    assert.equal(f.controller.status().confirmedTargetVideoId, A);
+});
+
+test("a failed queued selection after a host change rejects the departed video and accepts a surviving item", () => {
+    const C = "12345678901", original = [A, B, C], shuffled = [B, C, A];
+    for (const firstReport of [original, shuffled]) {
+        const f = fixture();
+        f.setList(original, 1); f.open({playlistId: "PLorder"}); f.state(1);
+        f.command("shuffle", true); f.setList(shuffled, 0);
+        f.command("next"); f.command("provider", "youtube");
+        f.setList(firstReport, firstReport.indexOf(A)); f.events.at(-1).ready(f.player);
+        f.events.at(-1).error("Video unavailable");
+        f.setList(shuffled, 0); f.state(1);
+        assert.equal(f.controller.status().confirmedTargetVideoId, "", "the departed B is still in the queue");
+        f.setList(original, 2); f.state(1);
+        assert.equal(f.controller.status().confirmedTargetVideoId, "", "late metadata from the original queue");
+        f.setList([B, A], 1); f.state(1);
+        assert.equal(f.controller.status().confirmedTargetVideoId, A, "requested order with unavailable C removed");
+    }
+});

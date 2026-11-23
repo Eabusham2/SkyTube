@@ -52,7 +52,8 @@ class YouTubeAccountTest {
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
         });
         var account = new YouTubeAccount(dir, ignored -> fail("No browser expected"),
-                "http://127.0.0.1:1/token", "http://127.0.0.1:1/v3/", "http://127.0.0.1:1/revoke", worker);
+                "http://127.0.0.1:1/token", "http://127.0.0.1:1/v3/", "http://127.0.0.1:1/revoke", worker,
+                new TokenStore(dir, "Linux", vault));
         try {
             var logout = account.logout();
             assertFalse(Files.exists(reference) && original.equals(Files.readString(reference)),
@@ -82,7 +83,8 @@ class YouTubeAccountTest {
         assertTrue(blocked.await(2, TimeUnit.SECONDS));
         var opened = new AtomicInteger();
         try (var account = new YouTubeAccount(dir, uri -> opened.incrementAndGet(),
-                "http://127.0.0.1:1/token", "http://127.0.0.1:1/v3/", "http://127.0.0.1:1/revoke", worker)) {
+                "http://127.0.0.1:1/token", "http://127.0.0.1:1/v3/", "http://127.0.0.1:1/revoke", worker,
+                new TokenStore(dir))) {
             var login = account.login();
             var logout = account.logout();
             release.countDown();
@@ -143,6 +145,53 @@ class YouTubeAccountTest {
             assertFalse(Files.exists(dir.resolve("youtube-account.dat")));
         } finally {
             releaseToken.countDown();
+            api.stop(0);
+        }
+    }
+
+    @Test void signOutDuringRefreshCancelsThePendingRatingBeforeDispatch(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("youtube-client.json"),
+                "{\"installed\":{\"client_id\":\"test.apps.googleusercontent.com\"}}");
+        var vault = new TokenStore(dir, "Linux", (args, input) -> args.contains("lookup") ? "fixture-refresh" : "");
+        vault.save("fixture-refresh");
+        var refreshStarted = new CountDownLatch(1);
+        var finishRefresh = new CountDownLatch(1);
+        List<String> paths = new CopyOnWriteArrayList<>();
+        var api = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 4);
+        api.createContext("/", exchange -> {
+            try (exchange) {
+                String path = exchange.getRequestURI().getPath();
+                paths.add(path);
+                if (path.equals("/token")) {
+                    refreshStarted.countDown();
+                    try {
+                        if (!finishRefresh.await(5, TimeUnit.SECONDS)) return;
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    byte[] bytes = "{\"access_token\":\"refreshed-fixture\",\"expires_in\":3600}"
+                            .getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    exchange.getResponseBody().write(bytes);
+                } else exchange.sendResponseHeaders(204, -1);
+            }
+        });
+        api.start();
+        String base = "http://127.0.0.1:" + api.getAddress().getPort();
+        try (var account = new YouTubeAccount(dir, uri -> fail("No browser expected"),
+                base + "/token", base + "/v3/", base + "/revoke", Executors.newSingleThreadExecutor(), vault)) {
+            var rating = account.rate(VIDEO, "like");
+            assertTrue(refreshStarted.await(3, TimeUnit.SECONDS));
+            var logout = account.logout();
+            assertFalse(account.isSignedIn());
+            finishRefresh.countDown();
+            String outcome = rating.get(4, TimeUnit.SECONDS);
+            assertEquals("YouTube account disconnected.", logout.get(4, TimeUnit.SECONDS));
+            assertEquals(List.of("/token", "/revoke"), paths, "A canceled rating must never reach the API");
+            assertTrue(outcome.contains("canceled"));
+        } finally {
+            finishRefresh.countDown();
             api.stop(0);
         }
     }

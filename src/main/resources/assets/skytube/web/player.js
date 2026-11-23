@@ -77,13 +77,20 @@ class SkyTubePlayer {
                 break;
             case "prev": case "next":
                 if (p && this.source.playlistId) {
-                    const list = p.getPlaylist() || [];
+                    const list = this.restoringQueue?.ids || p.getPlaylist() || [];
                     const index = this.pendingSelection?.index ?? p.getPlaylistIndex();
                     if (!this.validVideo(list[index])) break;
                     const next = index + (action === "next" ? 1 : -1);
                     if (next >= 0 && next < list.length) {
-                        this.expectSelection(next, list[next]);
+                        this.observeShuffleAnchor(list, true);
                         this.cuedStartSeconds = 0;
+                        if (this.restoringQueue) {
+                            this.selectPlaylist(list, next, list[next], 0);
+                            break;
+                        }
+                        this.expectSelection(next, list[next]);
+                    } else if (this.restoringQueue) {
+                        break;
                     }
                     if (this.desiredPlaying) {
                         // Relative calls can both use the old index when several clicks
@@ -102,11 +109,12 @@ class SkyTubePlayer {
                 break;
             case "seek": case "seekBy":
                 if (p && Number.isFinite(value)) {
-                    const target = action === "seek" ? value : p.getCurrentTime() + value;
+                    const target = action === "seek" ? value : this.effectivePosition() + value;
                     const duration = p.getDuration();
                     this.followLive = false;
-                    this.cuedStartSeconds = Math.max(0, duration > 0 ? Math.min(duration, target) : target);
-                    p.seekTo(this.cuedStartSeconds, true);
+                    const seconds = Math.max(0, duration > 0 ? Math.min(duration, target) : target);
+                    if (this.cuedStartSeconds !== null) this.cuedStartSeconds = seconds;
+                    p.seekTo(seconds, true);
                     if (!this.desiredPlaying && this.state !== 2) this.command("pause");
                 }
                 break;
@@ -137,7 +145,6 @@ class SkyTubePlayer {
             case "shuffle":
                 if (this.shuffle === Boolean(value)) break;
                 this.shuffle = Boolean(value);
-                this.shufflePending = true;
                 this.reconcilePlaylist();
                 break;
             case "chat":
@@ -155,18 +162,22 @@ class SkyTubePlayer {
                     this.privacy = Boolean(value);
                     if (this.source) {
                         const s = {...this.source};
+                        const order = this.restoringQueue?.ids || (p && this.appliedShuffle ? p.getPlaylist() : null);
+                        if (order && p) this.observeShuffleAnchor(order, true);
                         if (p && this.pendingSelection && !this.confirmedTargetVideoId()) {
                             const {index, id, startSeconds} = this.pendingSelection;
-                            s.videoId = id || p.getPlaylist()?.[index];
+                            s.videoId = id || (order || p.getPlaylist())?.[index];
                             s.index = index;
                             s.startSeconds = startSeconds || 0;
                         } else if (p && !this.selectInitial) {
                             s.videoId = this.videoId() || s.videoId;
-                            const cued = this.state === -1 || this.state === 5;
-                            s.startSeconds = p.getCurrentTime() || (cued ? this.cuedStartSeconds : 0);
+                            s.startSeconds = this.effectivePosition();
                             s.index = this.source.playlistId ? p.getPlaylistIndex() : undefined;
                         }
-                        this.open(s, false);
+                        const previous = this.pendingSelection?.previous || this.restoringQueue?.previous || this.confirmedTargetVideoId();
+                        const restore = this.validVideo(s.videoId) && order?.[s.index] === s.videoId
+                            ? {ids: order.slice(), previous} : null;
+                        this.open(s, false, restore);
                     }
                 }
                 break;
@@ -184,7 +195,7 @@ class SkyTubePlayer {
         }
     }
 
-    open(source, resetLive) {
+    open(source, resetLive, restore = null) {
         const generation = ++this.generation;
         this.adapter.destroy();
         this.player = null;
@@ -197,12 +208,14 @@ class SkyTubePlayer {
         this.pendingSelection = null;
         this.selectionError = false;
         this.selected = this.validVideo(source.videoId) ? source.videoId : "";
-        this.shufflePending = true;
-        this.appliedShuffle = false;
-        this.originalOrder = null;
-        this.detachedOrder = false;
+        this.restoringQueue = restore;
+        this.appliedShuffle = this.detachedOrder = Boolean(restore);
+        if (!restore) {
+            this.originalOrder = null;
+            this.shuffleAnchor = null;
+        }
         this.resetLiveObservations();
-        this.selectInitial = Boolean(this.selected && source.playlistId);
+        this.selectInitial = !restore && Boolean(this.selected && source.playlistId);
         this.message = "";
         if (resetLive) this.followLive = true;
         this.lastCatchup = this.adapter.now();
@@ -217,8 +230,10 @@ class SkyTubePlayer {
                 p.setVolume(this.volume);
                 this.applyMute();
                 this.applyRate();
-                if (source.playlistId && Number.isInteger(source.index) && source.index >= 0 && !source.videoId) {
-                    this.selectIndex(source.index);
+                if (restore) {
+                    this.selectPlaylist(restore.ids, source.index, source.videoId, source.startSeconds || 0, restore.previous);
+                } else if (source.playlistId && Number.isInteger(source.index) && source.index >= 0 && !source.videoId) {
+                    this.selectPlaylist(source.playlistId, source.index, "", source.startSeconds || 0);
                 } else if (this.desiredPlaying) p.playVideo();
                 this.reconcilePlaylist();
             },
@@ -251,8 +266,14 @@ class SkyTubePlayer {
 
     videoId() { return this.reportedVideoId() || this.selected; }
 
-    expectSelection(index, id, startSeconds = 0) {
-        const previous = this.confirmedTargetVideoId() || this.pendingSelection?.previous || this.reportedVideoId();
+    effectivePosition() {
+        // Only an unplayed cue needs a fallback. After playback, zero is a real
+        // position, including when the user scrubs back to the start in the iframe.
+        return this.player.getCurrentTime() || this.cuedStartSeconds || 0;
+    }
+
+    expectSelection(index, id, startSeconds = 0, previous = null) {
+        previous ??= this.confirmedTargetVideoId() || this.pendingSelection?.previous || this.reportedVideoId();
         this.pendingSelection = {index, id, startSeconds, previous, failed: false};
     }
 
@@ -262,8 +283,10 @@ class SkyTubePlayer {
         if (!id) return "";
         if (!this.source.playlistId) return id === this.source.videoId ? id : "";
         const index = this.player.getPlaylistIndex();
-        if (this.player.getPlaylist()?.[index] !== id) return "";
+        const list = this.player.getPlaylist();
+        if (list?.[index] !== id) return "";
         const pending = this.pendingSelection;
+        if (this.restoringQueue && (![1, 2, 5].includes(this.state) || !this.matchesRestoringQueue(list, pending?.failed))) return "";
         if (pending && (pending.index !== index || (pending.id && pending.id !== id))) {
             // YouTube can skip an unavailable item. Accept its replacement only after a
             // fresh playback/cue event and positive metadata for a different video.
@@ -273,12 +296,61 @@ class SkyTubePlayer {
         return id;
     }
 
-    selectIndex(index) {
-        const p = this.player;
-        const spec = {listType: "playlist", list: this.source.playlistId, index, startSeconds: this.source.startSeconds || 0};
-        this.expectSelection(index, this.source.videoId || "", spec.startSeconds);
-        if (this.desiredPlaying) p.loadPlaylist(spec);
-        else p.cuePlaylist(spec);
+    matchesRestoringQueue(list, failed) {
+        const expected = this.restoringQueue.ids;
+        if (list.length === expected.length) return list.every((id, i) => id === expected[i]);
+        // An unavailable entry may be omitted. Surviving entries must still be
+        // in the requested order before the reported video can be confirmed.
+        if (!failed || list.length > expected.length) return false;
+        let matched = 0;
+        for (const id of expected) if (id === list[matched]) matched++;
+        return matched === list.length;
+    }
+
+    selectPlaylist(list, index, id, startSeconds, previous = null) {
+        const spec = {listType: "playlist", list, index, startSeconds};
+        this.cuedStartSeconds = startSeconds;
+        this.expectSelection(index, id, startSeconds, previous);
+        if (this.desiredPlaying) this.player.loadPlaylist(spec);
+        else this.player.cuePlaylist(spec);
+    }
+
+    observeShuffleAnchor(list, leaving = false) {
+        const anchor = this.shuffleAnchor;
+        if (!anchor?.tracking) return;
+        const index = this.player.getPlaylistIndex();
+        const id = list[index];
+        if (this.validVideo(id) && id === this.reportedVideoId()) {
+            if (id !== this.originalOrder[anchor.originalIndex]) {
+                this.shuffleAnchor = null;
+                return;
+            }
+            const reordered = list.length !== this.originalOrder.length || list.some((video, i) => video !== this.originalOrder[i]);
+            // Once the shuffled slot is known, a later click on the other copy
+            // in the same iframe must not move the original occurrence with it.
+            if (reordered) anchor.index = index;
+            if (reordered || index !== anchor.originalIndex) anchor.tracking = false;
+        }
+        if (leaving) anchor.tracking = false;
+    }
+
+    originalIndex(list, index) {
+        const id = list[index];
+        const anchor = this.shuffleAnchor;
+        const pinned = anchor && list[anchor.index] === id && this.originalOrder[anchor.originalIndex] === id;
+        if (pinned && index === anchor.index) return anchor.originalIndex;
+        // The SDK reports video IDs, without playlist-item IDs. Pair indistinguishable
+        // remaining copies by occurrence, preserving the one known to be active at shuffle.
+        let occurrence = 0;
+        for (let i = 0; i < index; i++) {
+            if (list[i] === id && !(pinned && i === anchor.index)) occurrence++;
+        }
+        for (let i = 0; i < this.originalOrder.length; i++) {
+            if (this.originalOrder[i] !== id || (pinned && i === anchor.originalIndex)) continue;
+            if (occurrence === 0) return i;
+            occurrence--;
+        }
+        return -1;
     }
 
     reconcilePlaylist() {
@@ -292,26 +364,30 @@ class SkyTubePlayer {
             const hinted = this.source.index;
             const index = list[hinted] === this.source.videoId ? hinted : list.indexOf(this.source.videoId);
             if (index >= 0 && p.getPlaylistIndex() !== index) {
-                this.selectIndex(index);
+                this.selectPlaylist(this.source.playlistId, index, this.source.videoId, this.source.startSeconds || 0);
                 return;
             }
         }
         if (this.pendingSelection) {
             if (!this.confirmedTargetVideoId()) return;
             this.pendingSelection = null;
+            this.restoringQueue = null;
         }
-        if (this.shufflePending) {
-            this.shufflePending = false;
-            if (!this.shuffle && this.detachedOrder && this.appliedShuffle) {
-                const index = Math.max(0, this.originalOrder.indexOf(this.videoId()));
-                const startSeconds = p.getCurrentTime();
-                const spec = {listType: "playlist", list: this.source.playlistId, index, startSeconds};
+        this.observeShuffleAnchor(list);
+        if (this.shuffle === this.appliedShuffle) return;
+        this.appliedShuffle = this.shuffle;
+        if (!this.shuffle && this.detachedOrder) {
+            const index = this.originalIndex(list, p.getPlaylistIndex());
+            if (index >= 0) {
                 this.detachedOrder = false;
-                this.expectSelection(index, this.originalOrder[index], startSeconds);
-                if (this.desiredPlaying) p.loadPlaylist(spec);
-                else p.cuePlaylist(spec);
-            } else if (this.shuffle || this.appliedShuffle) p.setShuffle(this.shuffle);
-            this.appliedShuffle = this.shuffle;
+                this.selectPlaylist(this.source.playlistId, index, this.originalOrder[index], this.effectivePosition());
+            }
+        } else {
+            const index = p.getPlaylistIndex();
+            const id = list[index];
+            const duplicate = this.shuffle && this.validVideo(id) && list.indexOf(id) !== list.lastIndexOf(id);
+            this.shuffleAnchor = duplicate ? {originalIndex: index, index, tracking: true} : null;
+            p.setShuffle(this.shuffle);
         }
     }
 
@@ -331,7 +407,8 @@ class SkyTubePlayer {
     onState(state) {
         const previous = this.state;
         this.state = state;
-        if (state === 1 || state === 0) this.cuedStartSeconds = 0;
+        if (state === 1 || state === 0) this.cuedStartSeconds = null;
+        else if (state === 5) this.cuedStartSeconds ??= 0;
         if (state === 1) {
             // A queued play can report PLAYING after Minecraft has already requested a manual pause.
             // Once paused, only the actual focused iframe (or a native resume command) may resume it.
@@ -358,7 +435,9 @@ class SkyTubePlayer {
             this.desiredPlaying = false;
         } else if (state === 0 && this.ready && !this.pendingSelection) {
             const index = this.player.getPlaylistIndex() + 1;
-            const id = this.player.getPlaylist()?.[index];
+            const list = this.player.getPlaylist() || [];
+            this.observeShuffleAnchor(list, true);
+            const id = list[index];
             if (this.validVideo(id)) this.expectSelection(index, id);
         }
         if (state === 1 || state === 5) {

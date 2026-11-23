@@ -34,6 +34,7 @@ final class SkyPlacementChecks {
         world.getClientWorld().waitForChunksRender();
         check(context, mod, "clear-above", 1, 1, true);
         bridge.expect("clear sky", true, false);
+        bridge.checkManualReversal(mod);
 
         world.getServer().runCommand("fill -18 270 -18 18 270 18 stone");
         waitForBlock(context, world, 270, Blocks.STONE);
@@ -51,6 +52,12 @@ final class SkyPlacementChecks {
         world.getServer().runCommand("fill -10 178 -10 10 178 10 stone");
         waitForBlock(context, world, 178, Blocks.STONE);
         check(context, mod, "near-roof", 0, 0, false);
+        // The surrounding stone keeps all four roof sections rendered. Only barriers cross the video.
+        world.getServer().runCommand("fill -6 178 -6 6 178 6 barrier");
+        waitForBlock(context, world, 178, Blocks.BARRIER);
+        check(context, mod, "invisible-barrier", 1, 1, true);
+        bridge.expect("invisible barrier", true, false);
+        world.getServer().runCommand("fill -10 178 -10 -1 178 10 stone");
         world.getServer().runCommand("fill 0 178 -10 10 178 10 air");
         waitForBlock(context, world, 178, Blocks.AIR);
         check(context, mod, "partial-roof", .4, .65, false);

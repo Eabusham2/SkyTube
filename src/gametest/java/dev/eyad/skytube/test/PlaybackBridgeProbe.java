@@ -51,6 +51,27 @@ final class PlaybackBridgeProbe implements AutoCloseable {
                 + ", received playing=" + playing + ", muted=" + muted);
     }
 
+    void checkManualReversal(SkyTubeClient mod) {
+        context.runOnClient(mc -> mod.toggleManualPause());
+        context.waitTicks(2);
+        // This poll sends the pre-pause status and receives the game's new pause commands.
+        poll();
+        if (!manual || !Boolean.FALSE.equals(playing)) {
+            throw new AssertionError("Expected native manual pause and transport pause commands");
+        }
+        context.waitTicks(2);
+        if (!context.computeOnClient(mc -> mod.manuallyPaused())) {
+            throw new AssertionError("A status predating the native Pause cleared the manual latch");
+        }
+
+        // The user clicks Play before a report of the intermediate paused state reaches the game.
+        manual = false;
+        playing = true;
+        poll();
+        context.waitFor(mc -> !mod.manuallyPaused(), 100);
+        expect("iframe play before native pause status", true, false);
+    }
+
     private void poll() {
         String body = """
                 {"ack":%d,"status":{"ready":true,"state":%d,"userPaused":%b,"currentTime":0,"duration":30,"playbackRate":1}}

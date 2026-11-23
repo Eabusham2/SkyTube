@@ -53,6 +53,7 @@ public final class YouTubeAccount implements AutoCloseable {
     private volatile CompletableFuture<String> activeLogin;
     private volatile LoginAttempt loginAttempt;
     private volatile boolean signOutRequested;
+    private long accountGeneration;
     private CompletableFuture<String> activeLogout;
     private boolean localSignOutSaved;
     private String access = "";
@@ -65,17 +66,18 @@ public final class YouTubeAccount implements AutoCloseable {
 
     YouTubeAccount(Path configDir, Consumer<URI> openBrowser, String tokenEndpoint, String dataEndpoint, String revokeEndpoint) {
         this(configDir, openBrowser, tokenEndpoint, dataEndpoint, revokeEndpoint,
-                Executors.newSingleThreadExecutor(Thread.ofPlatform().daemon().name("SkyTube account").factory()));
+                Executors.newSingleThreadExecutor(Thread.ofPlatform().daemon().name("SkyTube account").factory()),
+                new TokenStore(configDir));
     }
 
     YouTubeAccount(Path configDir, Consumer<URI> openBrowser, String tokenEndpoint, String dataEndpoint,
-                   String revokeEndpoint, ExecutorService worker) {
+                   String revokeEndpoint, ExecutorService worker, TokenStore store) {
         this.worker = worker;
         this.tokenEndpoint = tokenEndpoint;
         this.dataEndpoint = dataEndpoint;
         this.revokeEndpoint = revokeEndpoint;
         this.configDir = configDir;
-        this.store = new TokenStore(configDir);
+        this.store = store;
         this.openBrowser = openBrowser;
         worker.execute(() -> {
             try {
@@ -186,6 +188,7 @@ public final class YouTubeAccount implements AutoCloseable {
     }
 
     public synchronized CompletableFuture<String> logout() {
+        accountGeneration++;
         signOutRequested = true;
         var pending = loginAttempt;
         if (pending != null) pending.cancel();
@@ -257,7 +260,11 @@ public final class YouTubeAccount implements AutoCloseable {
     }
 
     private JsonObject data(String method, String path, Object body) throws Exception {
-        if (!isSignedIn()) throw new AccountError("Connect a YouTube account in SkyTube first.");
+        long generation;
+        synchronized (this) {
+            if (!isSignedIn()) throw new AccountError("Connect a YouTube account in SkyTube first.");
+            generation = accountGeneration;
+        }
         if (Instant.now().plusSeconds(60).isAfter(expires)) {
             if (refresh.isBlank()) throw new AccountError("YouTube sign-in expired. Disconnect and sign in again.");
             try { setAccess(tokenRequest(credentials(), Map.of("grant_type", "refresh_token", "refresh_token", refresh))); }
@@ -276,7 +283,20 @@ public final class YouTubeAccount implements AutoCloseable {
         if (body != null) request.header("Content-Type", "application/json");
         request.method(method, body == null ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofString(JSON.toJson(body)));
-        return send(request.build());
+        CompletableFuture<HttpResponse<String>> response;
+        synchronized (this) {
+            // Sign out can cancel a request waiting for refresh, up to the moment it is dispatched.
+            if (generation != accountGeneration || !isSignedIn()) throw new AccountError("YouTube action canceled by sign out.");
+            response = http.sendAsync(request.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        }
+        try {
+            return responseBody(response.get());
+        } catch (ExecutionException failure) {
+            throw new IOException("YouTube request failed", failure.getCause());
+        } catch (InterruptedException interrupted) {
+            response.cancel(true);
+            throw interrupted;
+        }
     }
 
     private record Client(String id, String secret) {}
@@ -305,7 +325,10 @@ public final class YouTubeAccount implements AutoCloseable {
     }
 
     private JsonObject send(HttpRequest request) throws IOException, InterruptedException, AccountError {
-        var response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        return responseBody(http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)));
+    }
+
+    private static JsonObject responseBody(HttpResponse<String> response) throws AccountError {
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
             return response.body().isBlank() ? new JsonObject() : JsonParser.parseString(response.body()).getAsJsonObject();
         }

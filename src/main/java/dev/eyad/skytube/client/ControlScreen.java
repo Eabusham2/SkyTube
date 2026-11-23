@@ -147,16 +147,19 @@ public final class ControlScreen extends Screen {
         accountButton("Dislike", 1, 3, id -> mod.report(mod.account().rate(id, "dislike")));
         accountButton("Clear rating", 2, 3, id -> mod.report(mod.account().rate(id, "none")));
         nextRow();
+        String messageDraft = text == null ? "" : text.getValue();
         text = addRenderableWidget(new EditBox(font, left, y(), panelWidth, 20, Component.literal("Comment or live chat message")));
         text.setMaxLength(2000);
+        text.setValue(messageDraft);
         text.setHint(Component.literal("Comment or live chat message"));
         nextRow();
         accountButton("Post comment", 0, 2, id -> mod.report(mod.account().comment(id, text.getValue())));
         accountButton("Send live chat", 1, 2, id -> mod.report(mod.account().sendChat(id, text.getValue())));
         nextRow();
+        String prefixDraft = prefix == null ? mod.config().chatPrefix : prefix.getValue();
         prefix = addRenderableWidget(new EditBox(font, left, y(), panelWidth / 2 - 2, 20, Component.literal("Local chat command prefix without slash")));
         prefix.setMaxLength(16);
-        prefix.setValue(mod.config().chatPrefix);
+        prefix.setValue(prefixDraft);
         button("Save /prefix", 1, 2, () -> {
             String value = prefix.getValue().strip();
             if (!value.matches("[a-z][a-z0-9_]{0,15}")) { mod.notifyUser("Prefix: start with a lowercase letter; use up to 16 letters, digits or underscores."); return; }

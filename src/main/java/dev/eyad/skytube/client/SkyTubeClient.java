@@ -42,7 +42,6 @@ public final class SkyTubeClient implements ClientModInitializer {
     private WebPlayerServer server;
     private YouTubeAccount account;
     private PlaybackController.State sentState;
-    private boolean lastIframePaused;
     private boolean worldLoaded;
     private YouTubeSource loadedSource;
     private long selectionCommand;
@@ -115,18 +114,16 @@ public final class SkyTubeClient implements ClientModInitializer {
         while (faster.consumeClick()) changeRate(1);
         while (slower.consumeClick()) changeRate(-1);
         if (server == null) return;
-        boolean actualManualPause = server.status().userPaused();
-        if (server.status().appliedCommand() >= manualCommand && actualManualPause != lastIframePaused) {
-            lastIframePaused = actualManualPause;
-            playback.setManualPaused(actualManualPause);
-        }
+        var status = server.status();
+        // A native Pause and an iframe Play can both happen between two browser reports.
+        if (status.appliedCommand() >= manualCommand) playback.setManualPaused(status.userPaused());
         double visible = renderer.visibleFraction();
         if (client.screen instanceof InteractionScreen) visible = 1;
         else if (client.screen != null && !(client.screen instanceof ChatScreen)) visible = 0;
         boolean enabled = config.screenOn && loadedSource != null && client.isWindowActive();
         PlaybackController.State desired = playback.tick(enabled, visible, System.nanoTime() / 1_000_000);
         if (sentState == null || desired.muted() != sentState.muted()) server.command("mute", desired.muted());
-        boolean escapedPause = !desired.playing() && (server.status().state() == 1 || server.status().state() == 3)
+        boolean escapedPause = !desired.playing() && (status.state() == 1 || status.state() == 3)
                 && System.nanoTime() - lastTransportNanos > 500_000_000L;
         if (sentState == null || desired.playing() != sentState.playing() || escapedPause) {
             if (escapedPause && desired.muted()) server.command("mute", true);
@@ -153,7 +150,6 @@ public final class SkyTubeClient implements ClientModInitializer {
             }
             inferredLive = liveLink;
             playback.newSource();
-            lastIframePaused = server.status().userPaused();
             sentState = null;
             surface.chat(config.showChat);
             surface.start(server.pageUrl());

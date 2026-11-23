@@ -20,6 +20,8 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.client.CloudStatus;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ChunkResult;
 import net.minecraft.server.level.TicketType;
@@ -71,7 +73,8 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
                 if (page > 0) context.clickScreenButton(pages[page]);
                 context.waitForScreen(ControlScreen.class);
                 context.runOnClient(mc -> {
-                    mc.screen.resize(320, 240);
+                    if (page == 2) checkAccountDraftResize(mc.screen, mod);
+                    else mc.screen.resize(320, 240);
                     for (var child : mc.screen.children()) {
                         if (child instanceof AbstractWidget widget && (widget.getX() < 0 || widget.getY() < 0
                                 || widget.getRight() > 320 || widget.getBottom() > 240)) {
@@ -136,6 +139,32 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
         } finally {
             creatingTestWorld = false;
         }
+    }
+
+    private static void checkAccountDraftResize(Screen screen, SkyTubeClient mod) {
+        String savedPrefix = mod.config().chatPrefix;
+        String prefixDraft = savedPrefix.equals("unsaved") ? "other_draft" : "unsaved";
+        String message = "Unsent resize fixture";
+        String messageField = "Comment or live chat message";
+        String prefixField = "Local chat command prefix without slash";
+        editBox(screen, messageField).setValue(message);
+        editBox(screen, prefixField).setValue(prefixDraft);
+        screen.resize(320, 240);
+        EditBox text = editBox(screen, messageField);
+        EditBox prefix = editBox(screen, prefixField);
+        if (!text.getValue().equals(message) || !prefix.getValue().equals(prefixDraft)) {
+            throw new AssertionError("Resize lost an unsent account draft");
+        }
+        if (!savedPrefix.equals(mod.config().chatPrefix)) throw new AssertionError("Resize saved a draft prefix");
+        text.setValue("");
+        prefix.setValue(savedPrefix);
+    }
+
+    private static EditBox editBox(Screen screen, String label) {
+        for (var child : screen.children()) {
+            if (child instanceof EditBox box && box.getMessage().getString().equals(label)) return box;
+        }
+        throw new AssertionError("Missing text field: " + label);
     }
 
     private static void prepareSpawn(MinecraftServer server) {
