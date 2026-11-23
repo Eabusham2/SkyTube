@@ -57,7 +57,7 @@ Manual pause is remembered while looking away and back. Automatic visibility cha
 
 The provider dropdown is available when loading links and can also change an existing player. `yout-ube` links can be pasted directly. The observed third-party route was checked on November 22, 2026; it is not a separate playback backend or a guarantee about that website's future behavior.
 
-**No-Cookie mode is not a guaranteed ad blocker.** [YouTube documents that privacy-enhanced embeds can still show non-personalized ads](https://support.google.com/youtube/answer/171780?hl=en). The **Skip Ad** hotkey clicks a visible, enabled Skip button in the actual player. It waits for YouTube to make skipping available; it does not fast-forward normal videos or bypass non-skippable ads. You can always open **Interact** to use the real controls. YouTube can change the Skip button's markup, so failures are reported rather than falsely presented as successful skips.
+**No-Cookie mode is not a guaranteed ad blocker.** [YouTube documents that privacy-enhanced embeds can still show non-personalized ads](https://support.google.com/youtube/answer/171780?hl=en). The **Skip Ad** hotkey clicks a visible, enabled Skip button in the actual player. Each press checks once; if Skip is not available yet, press again after the button appears. It does not fast-forward normal videos or bypass non-skippable ads. You can always open **Interact** to use the real controls. YouTube can change the Skip button's markup, so failures are reported rather than falsely presented as successful skips.
 
 ## Sky placement, visibility and clouds
 
@@ -114,7 +114,7 @@ The release workflow can also be manually dispatched for an existing tag. It ver
 ## Troubleshooting
 
 - **Nothing happens after Load:** open Interact. A consent screen or browser autoplay restriction may require one click. Initialization progress and player errors are shown in the popup.
-- **Error 101 / 150:** the video owner disabled embedding. Open it on YouTube or choose another video.
+- **Error 101 / 150:** YouTube refused embedded playback. Open Interact to read its message; an embedding restriction or a YouTube verification requirement may apply.
 - **Error 153:** YouTube did not accept the playback context. SkyTube uses a real loopback HTTP page, iframe origin and referrer; check proxies or privacy filters that strip these headers.
 - **Video is paused while the menu is open:** that menu covers the video. Close it or use Interact.
 - **Clouds look wrong with a shader pack:** test the same scene with vanilla rendering and report the pack, mod list and game log.
