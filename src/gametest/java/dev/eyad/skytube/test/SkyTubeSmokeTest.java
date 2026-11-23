@@ -19,6 +19,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContex
 import net.minecraft.client.CloudStatus;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.world.level.gamerules.GameRules;
 
 public final class SkyTubeSmokeTest implements FabricClientGameTest {
     private static final String FIXTURE = "data:text/html;base64," + Base64.getEncoder().encodeToString(
@@ -29,7 +30,7 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
     public void runTest(ClientGameTestContext context) {
         SkyTubeClient mod = SkyTubeClient.get();
         BrowserSurface activeSurface;
-        try (TestSingleplayerContext world = context.worldBuilder().create()) {
+        try (TestSingleplayerContext world = createWorld(context)) {
             world.getClientWorld().waitForChunksRender();
             context.runOnClient(mc -> {
                 var connection = mc.getConnection();
@@ -110,6 +111,13 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
             activeSurface = context.computeOnClient(mc -> mod.surface());
         }
         context.waitFor(mc -> mc.level == null && mod.surface() == null && activeSurface.browser() == null, 200);
+    }
+
+    static TestSingleplayerContext createWorld(ClientGameTestContext context) {
+        // Fabric fixes the terrain seed, but vanilla still picks a random player spawn within its radius.
+        return context.worldBuilder()
+                .adjustSettings(settings -> settings.getGameRules().set(GameRules.RESPAWN_RADIUS, 0, null))
+                .create();
     }
 
     private static void openBrowserFixture(ClientGameTestContext context, SkyTubeClient mod) {

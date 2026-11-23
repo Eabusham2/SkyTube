@@ -24,7 +24,7 @@ public final class YouTubeNetworkSmokeTest implements FabricClientGameTest {
         if (!VIDEO.matches("[A-Za-z0-9_-]{11}")) throw new IllegalArgumentException("Expected an 11-character YouTube video ID.");
         var mod = SkyTubeClient.get();
         var failures = new ArrayList<String>();
-        try (var world = context.worldBuilder().create()) {
+        try (var world = SkyTubeSmokeTest.createWorld(context)) {
             world.getClientWorld().waitForChunksRender();
             var diagnostics = context.computeOnClient(mc -> {
                 try { return new MediaDiagnostics(VIDEO); }
