@@ -11,6 +11,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.client.CloudStatus;
 import net.minecraft.client.gui.components.AbstractSliderButton;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.input.MouseButtonInfo;
 import net.minecraft.core.BlockPos;
@@ -140,6 +141,8 @@ final class SkyPlacementChecks {
         bridge.expect("covering menu open", false, true);
         context.setScreen(() -> null);
         bridge.expect("covering menu closed", true, false);
+        // Retry feedback adds chat lines that would cover the earlier framebuffer samples.
+        bridge.checkLoadingControls(mod);
         context.runOnClient(mc -> mod.toggleScreen());
         bridge.expect("power off after playing", false, true);
         context.runOnClient(mc -> mod.toggleScreen());
@@ -151,16 +154,15 @@ final class SkyPlacementChecks {
         context.setScreen(() -> new ControlScreen(mod, 1));
         double selected = context.computeOnClient(mc -> {
             mc.screen.resize(320, 240);
-            var slider = mc.screen.children().stream()
-                    .filter(AbstractSliderButton.class::isInstance).map(AbstractSliderButton.class::cast)
-                    .filter(widget -> widget.getMessage().getString().startsWith("Visibility to play:"))
-                    .findFirst().orElseThrow();
-            // At this size the handle can land above 90.0% while its label still reads 90%.
-            var click = new MouseButtonEvent(slider.getX() + 271, slider.getY() + 10, new MouseButtonInfo(0, 0));
-            if (!mc.screen.mouseClicked(click, false) || !slider.getMessage().getString().equals("Visibility to play: 90%")) {
-                throw new AssertionError("Could not select the displayed 90% visibility threshold");
+            // These clicks land one pixel inside the endpoints, where the label still reads 100% or 0%.
+            for (int percent : new int[]{100, 0}) {
+                clickPercentage(mc.screen, "Cloud opacity over video", percent == 100 ? 299 : 5, percent);
+                if (mod.config().cloudOpacity != percent / 100.0) {
+                    throw new AssertionError("Cloud slider displayed " + percent + "% but saved " + mod.config().cloudOpacity);
+                }
             }
-            mc.screen.mouseReleased(click);
+            // The raw position is just above 90.0% while the label reads 90%.
+            clickPercentage(mc.screen, "Visibility to play", 271, 90);
             return mod.config().visibilityThreshold;
         });
         // A one-block strip across the middle hides two columns of the twenty-column visibility grid.
@@ -173,6 +175,19 @@ final class SkyPlacementChecks {
         if (selected != .90) throw new AssertionError("The visibility slider saved " + selected + " for 90%");
         world.getServer().runCommand("fill 0 178 -10 0 178 10 air");
         waitForBlock(context, world, 178, Blocks.AIR);
+    }
+
+    private static void clickPercentage(Screen screen, String label, int xOffset, int percent) {
+        var slider = screen.children().stream()
+                .filter(AbstractSliderButton.class::isInstance).map(AbstractSliderButton.class::cast)
+                .filter(widget -> widget.getMessage().getString().startsWith(label + ":"))
+                .findFirst().orElseThrow();
+        var click = new MouseButtonEvent(slider.getX() + xOffset, slider.getY() + 10, new MouseButtonInfo(0, 0));
+        if (!screen.mouseClicked(click, false)) throw new AssertionError("Could not click " + label);
+        screen.mouseReleased(click);
+        if (!slider.getMessage().getString().equals(label + ": " + percent + "%")) {
+            throw new AssertionError("Unexpected slider label " + slider.getMessage().getString());
+        }
     }
 
     private static void waitForBlock(ClientGameTestContext context, TestSingleplayerContext world, int y, Block block) {

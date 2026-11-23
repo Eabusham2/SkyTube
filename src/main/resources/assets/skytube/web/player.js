@@ -571,9 +571,11 @@ class SkyTubePlayer {
                 if (this.durationSample.duration > 0 && growth >= 0.25 && growth <= elapsed + 3) this.lastGrowth = now;
                 this.durationSample = {videoId, duration, now};
             }
-            // A backwards jump while playing also catches rewinds made with YouTube's own scrubber.
-            if (this.lastPosition !== null && position < this.lastPosition - 4) this.followLive = false;
-            this.lastPosition = position;
+            // A native rewind may still be landing when catch-up is enabled. Count it
+            // in the baseline, but wait for the iframe to confirm any forward seek.
+            const observedPosition = Math.min(position, this.pendingSeek?.target ?? position);
+            if (this.lastPosition !== null && observedPosition < this.lastPosition - 4) this.followLive = false;
+            this.lastPosition = observedPosition;
             // The documented duration is stream elapsed time. This is only an estimate of the DVR edge.
             if (this.followLive && this.lastGrowth !== null && now - this.lastGrowth <= 15000 &&
                     position > 0 && duration - position > 8 && now - this.lastCatchup >= 15000) {

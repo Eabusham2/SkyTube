@@ -1,6 +1,7 @@
 package dev.eyad.skytube.test;
 
 import com.google.gson.JsonParser;
+import dev.eyad.skytube.client.ControlScreen;
 import dev.eyad.skytube.client.SkyTubeClient;
 import dev.eyad.skytube.web.WebPlayerServer;
 import java.io.IOException;
@@ -10,7 +11,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
+import org.lwjgl.glfw.GLFW;
 
 /** Observes commands crossing the real loopback bridge while the browser displays the color fixture. */
 final class PlaybackBridgeProbe implements AutoCloseable {
@@ -72,10 +76,76 @@ final class PlaybackBridgeProbe implements AutoCloseable {
         expect("iframe play before native pause status", true, false);
     }
 
+    void checkLoadingControls(SkyTubeClient mod) {
+        String originalSource = context.computeOnClient(mc -> mod.config().source);
+        String originalProvider = context.computeOnClient(mc -> mod.config().provider);
+        poll(false);
+        context.runOnClient(mc -> mod.load("https://www.youtube.com/playlist?list=PLlocalfixture"));
+        context.getInput().pressKey(GLFW.GLFW_KEY_J);
+        expectRejected(mod, "J during initial player startup", false);
+
+        // The new load has reached the browser, but its player still hasn't reported ready.
+        poll(false);
+        context.runOnClient(mc -> {
+            mod.command("seek", 7);
+            mod.rewind();
+            mod.next();
+            mod.previous();
+            mod.liveEdge();
+        });
+        expectRejected(mod, "acknowledged load with an unready player", true);
+
+        context.runOnClient(mc -> {
+            mod.load(originalSource);
+            mod.next();
+        });
+        expectRejected(mod, "earlier player's ready report after a new load", true);
+        poll(true);
+
+        context.runOnClient(mc -> {
+            mod.config().provider = originalProvider.equals("youtube") ? "nocookie" : "youtube";
+            mod.settingsChanged();
+            mod.previous();
+        });
+        expectRejected(mod, "earlier player's ready report after a provider change", true);
+        poll(true);
+
+        // No bridge poll acknowledges any of these user actions until the whole burst is sent.
+        context.runOnClient(mc -> { mod.next(); mod.previous(); });
+        context.getInput().pressKey(GLFW.GLFW_KEY_J);
+        context.getInput().pressKey(GLFW.GLFW_KEY_J);
+        context.getInput().pressKey(GLFW.GLFW_KEY_Y);
+        context.waitForScreen(ControlScreen.class);
+        context.clickScreenButton("Go live");
+        context.clickScreenButton("Done");
+        List<String> controls = poll(true);
+        if (!controls.equals(List.of("next", "prev", "seekBy", "seekBy", "liveEdge"))) {
+            throw new AssertionError("Ready player did not receive the rapid controls in order: " + controls);
+        }
+        SkyTubeClient.LOGGER.info("Ready player received the rapid controls in order: {}", controls);
+
+        context.runOnClient(mc -> { mod.config().provider = originalProvider; mod.settingsChanged(); });
+        poll(true);
+        poll(true);
+    }
+
+    private void expectRejected(SkyTubeClient mod, String stage, boolean reportReady) {
+        String message = context.computeOnClient(mc -> mod.status());
+        List<String> controls = poll(reportReady);
+        if (!controls.isEmpty() || !message.equals("The player is still loading. This control did not run. Try again when ready.")) {
+            throw new AssertionError(stage + ": queued " + controls + " and displayed '" + message + "'");
+        }
+        SkyTubeClient.LOGGER.info("Loading control check '{}' displayed retry feedback and queued no action", stage);
+    }
+
     private void poll() {
+        poll(true);
+    }
+
+    private List<String> poll(boolean ready) {
         String body = """
-                {"ack":%d,"status":{"ready":true,"state":%d,"userPaused":%b,"currentTime":0,"duration":30,"playbackRate":1}}
-                """.formatted(ack, Boolean.TRUE.equals(playing) ? 1 : 2, manual);
+                {"ack":%d,"status":{"ready":%b,"state":%d,"userPaused":%b,"currentTime":0,"duration":30,"playbackRate":1}}
+                """.formatted(ack, ready, Boolean.TRUE.equals(playing) ? 1 : 2, manual);
         var request = HttpRequest.newBuilder(sync).timeout(Duration.ofSeconds(3))
                 .header("Origin", sync.getScheme() + "://" + sync.getAuthority())
                 .header("Content-Type", "application/json")
@@ -83,9 +153,12 @@ final class PlaybackBridgeProbe implements AutoCloseable {
         try {
             var response = http.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) throw new AssertionError("Player bridge returned " + response.statusCode());
+            List<String> controls = new ArrayList<>();
             for (var element : JsonParser.parseString(response.body()).getAsJsonArray()) {
                 var command = element.getAsJsonObject();
-                switch (command.get("action").getAsString()) {
+                String action = command.get("action").getAsString();
+                switch (action) {
+                    case "seek", "seekBy", "next", "prev", "liveEdge" -> controls.add(action);
                     case "play" -> playing = true;
                     case "pause" -> playing = false;
                     case "mute" -> muted = command.get("value").getAsBoolean();
@@ -93,6 +166,7 @@ final class PlaybackBridgeProbe implements AutoCloseable {
                 }
                 ack = command.get("id").getAsLong();
             }
+            return controls;
         } catch (IOException failure) {
             throw new UncheckedIOException("Cannot read player bridge", failure);
         } catch (InterruptedException interrupted) {

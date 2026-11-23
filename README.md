@@ -4,7 +4,7 @@
 
 Paste a video, live stream or playlist, center its screen where you are looking, and keep playing Minecraft. Playback and audio pause when too little of the video is visible. The default visibility threshold is **90%**, and both the threshold and cloud opacity are adjustable.
 
-[Download releases](https://github.com/Eabusham2/SkyTube/releases) · [Report an issue](https://github.com/Eabusham2/SkyTube/issues) · [Feature checklist](docs/FEATURES.md) · [Latest requirement audit](docs/AUDIT_1.0.4.md) · [Account setup](docs/ACCOUNT_SETUP.md)
+[Download releases](https://github.com/Eabusham2/SkyTube/releases) · [Report an issue](https://github.com/Eabusham2/SkyTube/issues) · [Feature checklist](docs/FEATURES.md) · [Latest requirement audit](docs/AUDIT_1.0.5.md) · [Account setup](docs/ACCOUNT_SETUP.md)
 
 **External playback check:** the GitHub-hosted runner receives YouTube's “Sign in to confirm you're not a bot” screen in all three provider settings. Ordinary WebM clips play in the same browser. At the project owner's request, this service-dependent test is optional for releases; required Java/JavaScript tests, Linux/Windows builds and native Minecraft/Chromium checks remain enabled. macOS compilation can be requested separately. Actual YouTube playback was not verified on that runner. See the [recorded requirement audit](docs/AUDIT_1.0.1.md#recorded-external-playback-results).
 
@@ -45,6 +45,8 @@ Every key can be changed in **Options → Controls → Key Binds → SkyTube**.
 
 The popup has **Player**, **Display**, and **Account** pages. It includes Load, provider selection, play/pause, rewind, ad skip, previous/next, shuffle, speed, Go live, Interact, centering, screen toggle, volume, visibility threshold, screen size, cloud opacity, follow view, live mode and catch-up. Settings save automatically.
 
+Rewind, Previous, Next and Go live require the chosen player to finish loading. If you press one of these controls too early, a message says the action did not run and asks you to retry when ready.
+
 Manual pause is remembered while looking away and back. Automatic visibility changes do not cancel it. Opening a covering game menu, leaving the world, turning the screen off, or losing window focus inhibits playback. The interaction screen counts as visible because it shows the actual video. Chat input remains usable without stopping the sky video.
 
 ## Providers and advertisements
@@ -65,7 +67,7 @@ The display is an actual perspective-projected sky plane, rendered before terrai
 
 The visibility threshold uses the video's frustum-clipped projected area plus an occlusion sample grid. It samples **20 × 12 rays at most ten times per second**, using the current rendered terrain sections and entity bounds. Source and flowing lava count as opaque; transparent water does not. This includes overhead blocks beyond the horizontal render-distance radius and excludes loaded sections that are not drawn. The visibility slider saves the whole percentage shown in its label. Short debounce intervals avoid rapid play/pause flicker at the threshold. This is an estimate rather than pixel-perfect measurement of every transparent pixel, entity silhouette, particle or shader effect. HUD elements and the chosen cloud opacity are not subtracted from this estimate. The chat sidebar does not count toward the video's visibility percentage.
 
-Cloud opacity is applied only inside the projected display area, including its chat sidebar. **0%** hides those cloud fragments; **100%** restores vanilla clouds. Clouds outside the display retain their normal appearance. The implementation handles vanilla Fast and Fancy cloud pipelines; render-replacing shader packs and other mods that replace cloud/world rendering require separate compatibility testing.
+Cloud opacity is applied only inside the projected display area, including its chat sidebar. **0%** hides those cloud fragments; **100%** restores vanilla clouds. The cloud slider saves the whole percentage shown in its label. Clouds outside the display retain their normal appearance. The implementation handles vanilla Fast and Fancy cloud pipelines; render-replacing shader packs and other mods that replace cloud/world rendering require separate compatibility testing.
 
 ## Playlists and live streams
 

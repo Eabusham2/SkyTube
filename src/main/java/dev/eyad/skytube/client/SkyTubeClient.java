@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
@@ -33,6 +34,7 @@ public final class SkyTubeClient implements ClientModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("SkyTube");
     private static SkyTubeClient instance;
     private static final double[] RATES = {0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2};
+    private static final Set<String> COMMANDS_REQUIRING_READY_PLAYER = Set.of("seek", "seekBy", "next", "prev", "liveEdge");
     private final Path configDir = FabricLoader.getInstance().getConfigDir().resolve("skytube");
     private final Path configFile = configDir.resolve("settings.json");
     private final PlaybackController playback = new PlaybackController();
@@ -44,6 +46,7 @@ public final class SkyTubeClient implements ClientModInitializer {
     private PlaybackController.State sentState;
     private boolean worldLoaded;
     private YouTubeSource loadedSource;
+    private long sourceCommand;
     private long selectionCommand;
     private String sentProvider;
     private Boolean sentShuffle;
@@ -162,8 +165,9 @@ public final class SkyTubeClient implements ClientModInitializer {
             request.put("autoplay", false);
             server.command("provider", config.provider);
             sentProvider = config.provider;
-            selectionCommand = server.command("load", request);
-            manualCommand = selectionCommand;
+            sourceCommand = server.command("load", request);
+            selectionCommand = sourceCommand;
+            manualCommand = sourceCommand;
             loadedSource = source;
             sentShuffle = null;
             syncPreferences();
@@ -186,7 +190,8 @@ public final class SkyTubeClient implements ClientModInitializer {
     private void syncPreferences() {
         if (server == null) return;
         if (!config.provider.equals(sentProvider)) {
-            selectionCommand = Math.max(selectionCommand, server.command("provider", config.provider));
+            sourceCommand = server.command("provider", config.provider);
+            selectionCommand = Math.max(selectionCommand, sourceCommand);
             sentProvider = config.provider;
         }
         server.command("rate", config.playbackRate);
@@ -240,6 +245,14 @@ public final class SkyTubeClient implements ClientModInitializer {
     }
     public void command(String action, Object value) {
         if (server == null) { notifyUser("Load a video or playlist first."); return; }
+        if (COMMANDS_REQUIRING_READY_PLAYER.contains(action)) {
+            var status = server.status();
+            // A ready report can still belong to the previous source or provider.
+            if (!status.ready() || status.appliedCommand() < sourceCommand) {
+                notifyUser("The player is still loading. This control did not run. Try again when ready.");
+                return;
+            }
+        }
         long id = server.command(action, value);
         if ("next".equals(action) || "prev".equals(action)) selectionCommand = id;
     }
@@ -287,6 +300,7 @@ public final class SkyTubeClient implements ClientModInitializer {
         if (surface != null) { surface.close(); surface = null; }
         if (server != null) { server.close(); server = null; }
         loadedSource = null;
+        sourceCommand = 0;
         sentProvider = null;
         sentShuffle = null;
         sentState = null;

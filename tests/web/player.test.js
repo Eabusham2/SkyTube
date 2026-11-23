@@ -181,6 +181,33 @@ test("re-enabling catch-up starts at the current DVR position and still respects
     assert.deepEqual(f.calls.filter(c => c[0] === "seek"), [["seek", 70], ["seek", 300]]);
 });
 
+test("re-enabling catch-up before an earlier DVR rewind lands still permits catch-up and later iframe scrubs", () => {
+    const f = fixture();
+    f.command("lowLatency", true); f.open({videoId: A, live: true}); f.state(1); f.advance(1);
+    f.player.seekTo = seconds => f.calls.push(["seek", seconds]);
+    f.command("lowLatency", false); f.command("seekBy", -30); f.command("lowLatency", true);
+    f.advance(120); // The iframe still reports 100 after catch-up was enabled.
+    f.setPosition(70); f.setDuration(301); f.advance(1000);
+    f.setPosition(85); f.setDuration(316); f.advance(15000);
+    assert.deepEqual(f.calls.filter(c => c[0] === "seek"), [["seek", 70], ["seek", 315]]);
+
+    f.setPosition(315); f.advance(120);
+    f.setPosition(205); f.advance(120); // The viewer uses the iframe's own scrubber.
+    f.setDuration(332); f.advance(16000);
+    assert.deepEqual(f.calls.filter(c => c[0] === "seek"), [["seek", 70], ["seek", 315]]);
+});
+
+test("catch-up retries a forward seek that the live player ignored", () => {
+    const f = fixture();
+    f.command("lowLatency", true); f.open({videoId: A, live: true}); f.state(1); f.advance(1);
+    f.player.seekTo = seconds => f.calls.push(["seek", seconds]);
+    f.setDuration(315); f.advance(15000);
+    f.advance(120); // The seek is outstanding while the iframe continues its old clock.
+    f.setPosition(102); f.setDuration(317); f.advance(2000);
+    f.setPosition(115); f.setDuration(330); f.advance(13000);
+    assert.deepEqual(f.calls.filter(c => c[0] === "seek"), [["seek", 314], ["seek", 329]]);
+});
+
 test("a late PLAYING event cannot cancel manual pause before acknowledgement or while the iframe has no focus", () => {
     const f = fixture();
     f.open({videoId: A, autoplay: false});

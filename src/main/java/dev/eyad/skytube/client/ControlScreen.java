@@ -125,7 +125,8 @@ public final class ControlScreen extends Screen {
         ModConfig c = mod.config();
         slider("Visibility to play", c.visibilityThreshold, v -> c.visibilityThreshold = Math.round(v * 100) / 100.0,
                 v -> Math.round(v * 100) + "%");
-        slider("Cloud opacity over video", c.cloudOpacity, v -> c.cloudOpacity = v, v -> Math.round(v * 100) + "%");
+        slider("Cloud opacity over video", c.cloudOpacity, v -> c.cloudOpacity = Math.round(v * 100) / 100.0,
+                v -> Math.round(v * 100) + "%");
         slider("Screen width", (c.angularWidth - 15) / 95, v -> c.angularWidth = 15 + v * 95, v -> Math.round(15 + v * 95) + "°");
         slider("Volume", c.volume, v -> c.volume = v, v -> Math.round(v * 100) + "%");
         toggle("Follow view", c.followView, 0, 2, mod::toggleFollowView);
