@@ -87,7 +87,12 @@ loom.runs.clientGameTest {
         property 'skytube.smoke.textureOnly', 'true'
     }
     if (providers.gradleProperty('smokeYouTube').map { it.toBoolean() }.getOrElse(false)) {
+        def video = providers.gradleProperty('smokeYouTubeVideo').getOrElse('M7lc1UVf-VE')
+        if (!(video ==~ /[A-Za-z0-9_-]{11}/)) {
+            throw new GradleException('smokeYouTubeVideo must be an 11-character YouTube video ID.')
+        }
         property 'skytube.smoke.youtube', 'true'
+        property 'skytube.smoke.youtube.video', video
     }
 }
 

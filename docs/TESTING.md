@@ -45,13 +45,16 @@ The development sandbox successfully started Minecraft, created a world and rend
 
 ## Optional real YouTube check
 
-The `Minecraft client smoke test` workflow has an opt-in **youtube** input, defaulting to false. With it enabled, a separate test opens the official public IFrame API example video through normal YouTube, No-Cookie and the yout-ube destination in actual MCEF. Each provider must report the expected iframe host, confirmed video ID, `PLAYING` state and advancing playback time. Normal YouTube must also pass native manual pause, a stable paused clock, rewind and resume.
+The `Minecraft client smoke test` workflow has an opt-in **youtube** input, defaulting to false. With it enabled, a separate test opens the official public IFrame API example video through normal YouTube, No-Cookie and the yout-ube destination in actual MCEF. Its **video** input accepts another public video's 11-character ID, allowing a sample-specific availability failure to be checked with a different video. Each provider must report the expected iframe host, confirmed video ID, `PLAYING` state and advancing playback time. Normal YouTube must also pass native manual pause, a stable paused clock, rewind and resume.
 
 ```bash
 xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew -PsmokeYouTube=true runClientGameTest
+
+# Optional alternate sample:
+xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew -PsmokeYouTube=true -PsmokeYouTubeVideo=aqz-KE-bpKQ runClientGameTest
 ```
 
-Each provider has a 90-second wall-clock limit. Every failure produces player telemetry and a screenshot, and the remaining providers are still checked. The test does not sign in, post, automatically click verification prompts, or skip ads. YouTube availability, consent, embedding rules and data-center verification may block it; inspect the actual workflow result before claiming live-provider playback passed. This external-service check is separate from the deterministic release gate. A playback clock on a runner with a null audio device does not prove audible output, live DVR/chat behavior, or every YouTube video.
+Each provider has a 90-second wall-clock limit. Once the provider check starts, a failed playback assertion records the last player report and a screenshot before the next provider runs. A native setup failure can stop the workflow earlier. The test does not sign in, post, automatically click verification prompts, or skip ads. YouTube availability, consent, embedding rules and data-center verification may block it; inspect the actual workflow result before claiming live-provider playback passed. This external-service check is separate from the deterministic release gate. A playback clock on a runner with a null audio device does not prove audible output, live DVR/chat behavior, or every YouTube video.
 
 ## Reproducible cloud pixel check
 

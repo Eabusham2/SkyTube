@@ -12,6 +12,10 @@ on:
         description: Check external YouTube playback for all three provider settings
         type: boolean
         default: false
+      video:
+        description: Public YouTube video ID for the optional playback check
+        type: string
+        default: M7lc1UVf-VE
   workflow_call:
     inputs:
       ref:
@@ -20,6 +24,9 @@ on:
       youtube:
         type: boolean
         default: false
+      video:
+        type: string
+        default: M7lc1UVf-VE
 
 permissions:
   contents: read
@@ -47,7 +54,8 @@ jobs:
       - name: Render a Chromium page inside a singleplayer world
         env:
           SMOKE_YOUTUBE: ${{ inputs.youtube }}
-        run: xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew --stacktrace "-PsmokeYouTube=$SMOKE_YOUTUBE" runClientGameTest
+          SMOKE_YOUTUBE_VIDEO: ${{ inputs.video }}
+        run: xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew --stacktrace "-PsmokeYouTube=$SMOKE_YOUTUBE" "-PsmokeYouTubeVideo=$SMOKE_YOUTUBE_VIDEO" runClientGameTest
       - uses: actions/upload-artifact@v4
         if: always()
         with:

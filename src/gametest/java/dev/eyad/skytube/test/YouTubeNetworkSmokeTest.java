@@ -14,11 +14,12 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 
 /** Optional external service check. Uses the actual Chromium iframe and its production player bridge. */
 public final class YouTubeNetworkSmokeTest implements FabricClientGameTest {
-    private static final String VIDEO = "M7lc1UVf-VE";
+    private static final String VIDEO = System.getProperty("skytube.smoke.youtube.video", "M7lc1UVf-VE");
     private static final long PROVIDER_TIMEOUT = Duration.ofSeconds(90).toNanos();
 
     @Override public void runTest(ClientGameTestContext context) {
         if (!Boolean.getBoolean("skytube.smoke.youtube")) return;
+        if (!VIDEO.matches("[A-Za-z0-9_-]{11}")) throw new IllegalArgumentException("Expected an 11-character YouTube video ID.");
         var mod = SkyTubeClient.get();
         var failures = new ArrayList<String>();
         try (var world = context.worldBuilder().create()) {
