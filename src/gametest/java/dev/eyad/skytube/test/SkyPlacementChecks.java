@@ -10,6 +10,9 @@ import javax.imageio.ImageIO;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.client.CloudStatus;
+import net.minecraft.client.gui.components.AbstractSliderButton;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.MouseButtonInfo;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.block.Block;
@@ -35,6 +38,7 @@ final class SkyPlacementChecks {
         check(context, mod, "clear-above", 1, 1, true);
         bridge.expect("clear sky", true, false);
         bridge.checkManualReversal(mod);
+        checkVisibilitySlider(context, world, mod, bridge);
 
         // Keep the three fluid sheets in place while the client renders and samples each one.
         world.getServer().runCommand("tick freeze");
@@ -140,6 +144,35 @@ final class SkyPlacementChecks {
         bridge.expect("power off after playing", false, true);
         context.runOnClient(mc -> mod.toggleScreen());
         bridge.expect("playing before world exit", true, false);
+    }
+
+    private static void checkVisibilitySlider(ClientGameTestContext context, TestSingleplayerContext world,
+                                              SkyTubeClient mod, PlaybackBridgeProbe bridge) {
+        context.setScreen(() -> new ControlScreen(mod, 1));
+        double selected = context.computeOnClient(mc -> {
+            mc.screen.resize(320, 240);
+            var slider = mc.screen.children().stream()
+                    .filter(AbstractSliderButton.class::isInstance).map(AbstractSliderButton.class::cast)
+                    .filter(widget -> widget.getMessage().getString().startsWith("Visibility to play:"))
+                    .findFirst().orElseThrow();
+            // At this size the handle can land above 90.0% while its label still reads 90%.
+            var click = new MouseButtonEvent(slider.getX() + 271, slider.getY() + 10, new MouseButtonInfo(0, 0));
+            if (!mc.screen.mouseClicked(click, false) || !slider.getMessage().getString().equals("Visibility to play: 90%")) {
+                throw new AssertionError("Could not select the displayed 90% visibility threshold");
+            }
+            mc.screen.mouseReleased(click);
+            return mod.config().visibilityThreshold;
+        });
+        // A one-block strip across the middle hides two columns of the twenty-column visibility grid.
+        world.getServer().runCommand("fill 0 178 -10 0 178 10 stone");
+        waitForBlock(context, world, 178, Blocks.STONE);
+        context.waitFor(mc -> Math.abs(mod.renderer().visibleFraction() - .90) < 1e-9, 200);
+        bridge.expect("threshold adjustment menu open", false, true);
+        context.setScreen(() -> null);
+        bridge.expect("90% visible, slider reads 90% (configured " + selected + ")", true, false);
+        if (selected != .90) throw new AssertionError("The visibility slider saved " + selected + " for 90%");
+        world.getServer().runCommand("fill 0 178 -10 0 178 10 air");
+        waitForBlock(context, world, 178, Blocks.AIR);
     }
 
     private static void waitForBlock(ClientGameTestContext context, TestSingleplayerContext world, int y, Block block) {

@@ -168,6 +168,19 @@ test("YouTube's own DVR scrubber suspends catch-up even when unrelated settings 
     assert.deepEqual(f.calls.at(-1), ["seek", 335]);
 });
 
+test("re-enabling catch-up starts at the current DVR position and still respects subsequent rewinds", () => {
+    const f = fixture();
+    f.command("lowLatency", true); f.open({videoId: A, live: true}); f.state(1); f.advance(1);
+    f.command("lowLatency", false); f.command("seekBy", -30); f.advance(15000);
+    f.command("lowLatency", true); f.advance(1);
+    assert.deepEqual(f.calls.filter(c => c[0] === "seek"), [["seek", 70]]);
+    f.setDuration(301); f.advance(1000);
+    assert.deepEqual(f.calls.at(-1), ["seek", 300]);
+    f.advance(120); f.setPosition(200); f.advance(120);
+    f.setDuration(321); f.advance(20000);
+    assert.deepEqual(f.calls.filter(c => c[0] === "seek"), [["seek", 70], ["seek", 300]]);
+});
+
 test("a late PLAYING event cannot cancel manual pause before acknowledgement or while the iframe has no focus", () => {
     const f = fixture();
     f.open({videoId: A, autoplay: false});
@@ -342,6 +355,89 @@ test("unshuffle restores the selected duplicate occurrence after paused navigati
     f.command("next"); f.advance(120); f.command("next"); f.advance(120);
     f.command("shuffle", false);
     assert.deepEqual(f.calls.at(-1)[1], {listType: "playlist", list: "PLdupes", index: 2, startSeconds: 100});
+});
+
+for (const detached of [false, true]) {
+    test("rapid navigation during unshuffle uses the original " + (detached ? "detached" : "SDK-managed") + " playlist", () => {
+        const f = fixture(), C = "12345678901", original = [A, B, C], shuffled = [C, B, A];
+        const playlistId = "PLorder";
+        f.setList(original, 1); f.open({playlistId, autoplay: false}); f.state(5);
+        f.command("shuffle", true); f.setList(shuffled, 1); f.advance(120);
+        if (detached) {
+            f.command("prev"); f.advance(120); f.command("next"); f.advance(120);
+        }
+        // The iframe keeps reporting its shuffled copy while it processes these commands.
+        f.player.cuePlaylist = (list, index) => f.calls.push(["cuePlaylist", list, index]);
+        f.command("shuffle", false); f.advance(120);
+        const staleTarget = f.controller.status().confirmedTargetVideoId;
+        for (const [action, index] of [["next", 2], ["prev", 1], ["next", 2]]) {
+            f.command(action);
+            assert.deepEqual(f.calls.at(-1), ["cuePlaylist", {listType: "playlist", list: playlistId, index, startSeconds: 0}, undefined]);
+        }
+        assert.equal(staleTarget, "", "B occupies the same index in both orders");
+        assert.equal(f.controller.status().confirmedTargetVideoId, "");
+        f.command("provider", "youtube");
+        assert.equal(f.created.at(-1).source.videoId, C);
+        f.events.at(-1).ready(f.player);
+        assert.deepEqual(f.calls.at(-1), ["cuePlaylist", {listType: "playlist", list: playlistId, index: 2, startSeconds: 0}, undefined]);
+        f.state(5); f.advance(120);
+        assert.equal(f.controller.status().confirmedTargetVideoId, "");
+        f.setList(original, 2); f.advance(120);
+        assert.equal(f.controller.status().confirmedTargetVideoId, C);
+        assert.equal(f.calls.some(c => c[0] === "play" || c[0] === "loadPlaylist"), false);
+    });
+}
+
+test("a playing playlist can advance naturally while the SDK restores its original order", () => {
+    const f = fixture(), C = "12345678901", original = [A, B, C], shuffled = [C, B, A];
+    f.setList(original, 1); f.open({playlistId: "PLorder"}); f.state(1);
+    f.command("shuffle", true); f.setList(shuffled, 1); f.advance(120);
+    f.command("shuffle", false); f.state(0);
+    f.setList(original, 2); f.state(1);
+    assert.equal(f.controller.status().confirmedTargetVideoId, C);
+    assert.equal(f.calls.filter(c => c[0] === "play" || c[0] === "loadPlaylist").length, 1);
+});
+
+test("an early original order can be followed by the older shuffle report", () => {
+    const f = fixture(), C = "12345678901", D = "12345678902";
+    f.setList([A, B, C], 1); f.open({playlistId: "PLorder", autoplay: false}); f.state(5);
+    f.command("shuffle", true); f.command("shuffle", false); f.advance(120);
+    assert.equal(f.controller.status().confirmedTargetVideoId, B, "matching reports are immediately usable");
+    f.setList([A, B, C, D], 1); f.advance(120);
+    f.setList([C, B, A], 1); // Delayed shuffle predates even the appended D.
+    f.command("next"); f.command("next");
+    assert.deepEqual(f.calls.slice(-2).map(call => call[1]), [2, 3].map(index =>
+        ({listType: "playlist", list: "PLorder", index, startSeconds: 0})));
+    assert.equal(f.controller.status().confirmedTargetVideoId, "");
+    f.setList([A, B, C, D], 3); f.state(5);
+    assert.equal(f.controller.status().confirmedTargetVideoId, D);
+});
+
+test("a provider change preserves the known duplicate occurrence through a late shuffle report", () => {
+    const f = fixture(), C = "12345678901", original = [A, B, A, C];
+    f.setList(original, 2); f.open({playlistId: "PLdupes", autoplay: false}); f.state(5);
+    f.command("shuffle", true); f.command("shuffle", false); f.advance(120);
+    f.setList([A, C, B, A], 0); // The second A in the original list has moved ahead of its twin.
+    f.command("provider", "youtube");
+    assert.equal(f.created.at(-1).source.index, 2);
+    f.events.at(-1).ready(f.player); f.state(5);
+    assert.equal(f.controller.status().confirmedTargetVideoId, "");
+    f.setList(original, 2); f.advance(120);
+    assert.equal(f.controller.status().confirmedTargetVideoId, A);
+});
+
+test("unshuffle restores entries reported before shuffle and accepts later additions to the named playlist", () => {
+    const f = fixture(), C = "12345678901", D = "12345678902", E = "12345678903";
+    f.setList([A, B, C], 1); f.open({playlistId: "PLorder", autoplay: false}); f.state(5);
+    f.setList([A, B, C, D], 3); f.advance(120);
+    f.command("shuffle", true); f.setList([D, A, B, C], 0);
+    f.command("next"); f.advance(120); f.command("prev"); f.advance(120);
+    f.command("shuffle", false);
+    assert.deepEqual(f.calls.at(-1)[1], {listType: "playlist", list: "PLorder", index: 3, startSeconds: 100});
+    f.setList([A, B, C, D, E], 3); f.state(5);
+    assert.equal(f.controller.status().confirmedTargetVideoId, D);
+    f.command("next");
+    assert.deepEqual(f.calls.at(-1), ["cuePlaylist", [A, B, C, D, E], 4]);
 });
 
 test("unshuffle retains a known original duplicate even if the SDK shuffles it ahead of its twin", () => {

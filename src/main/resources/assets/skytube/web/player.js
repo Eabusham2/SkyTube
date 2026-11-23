@@ -79,6 +79,7 @@ class SkyTubePlayer {
                 break;
             case "prev": case "next":
                 if (p && this.source.playlistId) {
+                    if (this.unshuffleReference) this.observeOriginalQueue(p.getPlaylist(), true);
                     const list = this.restoringQueue?.ids || p.getPlaylist() || [];
                     const index = this.pendingSelection?.index ?? p.getPlaylistIndex();
                     if (!this.validVideo(list[index])) break;
@@ -88,7 +89,7 @@ class SkyTubePlayer {
                         this.pendingSeek = null;
                         this.cuedStartSeconds = 0;
                         if (this.restoringQueue) {
-                            this.selectPlaylist(list, next, list[next], 0);
+                            this.selectPlaylist(this.restoringQueue.playlistId || list, next, list[next], 0);
                             break;
                         }
                         this.expectSelection(next, list[next]);
@@ -146,6 +147,7 @@ class SkyTubePlayer {
                 break;
             case "shuffle":
                 if (this.shuffle === Boolean(value)) break;
+                this.unshuffleReference = null;
                 this.shuffle = Boolean(value);
                 this.reconcilePlaylist();
                 break;
@@ -163,6 +165,7 @@ class SkyTubePlayer {
                 if (this.privacy !== Boolean(value)) {
                     this.privacy = Boolean(value);
                     if (this.source) {
+                        if (p && this.unshuffleReference) this.observeOriginalQueue(p.getPlaylist(), true);
                         const s = {...this.source};
                         const order = this.restoringQueue?.ids || (p && this.appliedShuffle ? p.getPlaylist() : null);
                         if (order && p) this.observeShuffleAnchor(order, true);
@@ -178,7 +181,7 @@ class SkyTubePlayer {
                         }
                         const previous = this.pendingSelection?.previous || this.restoringQueue?.previous || this.confirmedTargetVideoId();
                         const restore = this.validVideo(s.videoId) && order?.[s.index] === s.videoId
-                            ? {ids: order.slice(), previous} : null;
+                            ? {ids: order.slice(), previous, playlistId: this.restoringQueue?.playlistId} : null;
                         this.open(s, false, restore);
                     }
                 }
@@ -192,7 +195,10 @@ class SkyTubePlayer {
             case "lowLatency":
                 if (this.lowLatency === Boolean(value)) break;
                 this.lowLatency = Boolean(value);
-                if (this.lowLatency) this.followLive = true;
+                if (this.lowLatency) {
+                    this.followLive = true;
+                    this.resetLiveObservations();
+                }
                 break;
         }
     }
@@ -212,7 +218,8 @@ class SkyTubePlayer {
         this.selectionError = false;
         this.selected = this.validVideo(source.videoId) ? source.videoId : "";
         this.restoringQueue = restore;
-        this.appliedShuffle = this.detachedOrder = Boolean(restore);
+        this.unshuffleReference = null;
+        this.appliedShuffle = this.detachedOrder = Boolean(restore && !restore.playlistId);
         if (!restore) {
             this.originalOrder = null;
             this.shuffleAnchor = null;
@@ -234,7 +241,7 @@ class SkyTubePlayer {
                 this.applyMute();
                 this.applyRate();
                 if (restore) {
-                    this.selectPlaylist(restore.ids, source.index, source.videoId, source.startSeconds || 0, restore.previous);
+                    this.selectPlaylist(restore.playlistId || restore.ids, source.index, source.videoId, source.startSeconds || 0, restore.previous);
                 } else if (source.playlistId && Number.isInteger(source.index) && source.index >= 0 && !source.videoId) {
                     this.selectPlaylist(source.playlistId, source.index, "", source.startSeconds || 0);
                 } else if (this.desiredPlaying) p.playVideo();
@@ -322,7 +329,7 @@ class SkyTubePlayer {
         if (list?.[index] !== id) return "";
         const pending = this.pendingSelection;
         if (this.restoringQueue && (![1, 2, 5].includes(this.state) || !this.matchesRestoringQueue(list, pending?.failed))) return "";
-        if (pending && (pending.index !== index || (pending.id && pending.id !== id))) {
+        if (pending && !pending.orderOnly && (pending.index !== index || (pending.id && pending.id !== id))) {
             // YouTube can skip an unavailable item. Accept its replacement only after a
             // fresh playback/cue event and positive metadata for a different video.
             if (!pending.failed || !this.validVideo(pending.previous) || id === pending.previous ||
@@ -333,7 +340,10 @@ class SkyTubePlayer {
 
     matchesRestoringQueue(list, failed) {
         const expected = this.restoringQueue.ids;
-        if (list.length === expected.length) return list.every((id, i) => id === expected[i]);
+        // A named playlist may have gained entries at the end since it was shuffled.
+        if (list.length === expected.length || (this.restoringQueue.playlistId && list.length > expected.length)) {
+            return expected.every((id, i) => id === list[i]);
+        }
         // An unavailable entry may be omitted. Surviving entries must still be
         // in the requested order before the reported video can be confirmed.
         if (!failed || list.length > expected.length) return false;
@@ -389,12 +399,40 @@ class SkyTubePlayer {
         return -1;
     }
 
+    observeOriginalQueue(list, forCommand = false) {
+        const reference = this.unshuffleReference;
+        if (!Array.isArray(list) || list.length < reference.initialLength) return;
+        const original = this.originalOrder;
+        const index = this.player.getPlaylistIndex();
+        const id = this.reportedVideoId();
+        if (original.every((video, i) => list[i] === video)) {
+            if (list.length > original.length) this.originalOrder = list.slice();
+            if (list[index] === id) reference.index = index;
+            return;
+        }
+        if (!forCommand || this.restoringQueue || list.length > original.length) return;
+        // The old shuffle can arrive after we already observed the requested order.
+        // Recognize only a permutation of a known prefix, including duplicate counts.
+        const expected = original.slice(0, list.length);
+        if (expected.every((video, i) => video === list[i])) return;
+        expected.sort();
+        if (!list.slice().sort().every((video, i) => video === expected[i])) return;
+        const previous = original[reference.index];
+        const slot = id === previous || list[index] !== id ? reference.index : this.originalIndex(list, index);
+        if (slot < 0) return;
+        this.restoringQueue = {ids: original, playlistId: this.source.playlistId, previous};
+        if (!this.pendingSelection) {
+            this.expectSelection(slot, original[slot], this.effectivePosition(), previous);
+            this.pendingSelection.orderOnly = true;
+        }
+    }
+
     reconcilePlaylist() {
         if (!this.ready || !this.source.playlistId) return;
         const p = this.player;
         const list = p.getPlaylist();
         if (!Array.isArray(list) || !list.length) return;
-        if (!this.originalOrder) this.originalOrder = list.slice();
+        if (this.unshuffleReference) this.observeOriginalQueue(list);
         if (this.selectInitial) {
             this.selectInitial = false;
             const hinted = this.source.index;
@@ -412,18 +450,37 @@ class SkyTubePlayer {
         this.observeShuffleAnchor(list);
         if (this.shuffle === this.appliedShuffle) return;
         this.appliedShuffle = this.shuffle;
-        if (!this.shuffle && this.detachedOrder) {
+        if (!this.shuffle) {
             const index = this.originalIndex(list, p.getPlaylistIndex());
             if (index >= 0) {
-                this.detachedOrder = false;
-                this.selectPlaylist(this.source.playlistId, index, this.originalOrder[index], this.effectivePosition());
+                // setShuffle and cuePlaylist can both leave the old queue visible until
+                // the next SDK report. Navigate in the requested order during that gap.
+                const id = this.originalOrder[index];
+                const position = this.effectivePosition();
+                const previous = this.confirmedTargetVideoId();
+                const playlistId = this.source.playlistId;
+                if (list.length === this.originalOrder.length && list.every((video, i) => video === this.originalOrder[i])) {
+                    this.unshuffleReference = {index, initialLength: list.length};
+                }
+                this.restoringQueue = {ids: this.originalOrder, playlistId, previous};
+                if (this.detachedOrder) {
+                    this.detachedOrder = false;
+                    this.selectPlaylist(playlistId, index, id, position, previous);
+                    return;
+                }
+                this.expectSelection(index, id, position, previous);
+                // An SDK-managed reorder keeps playing and may naturally advance before
+                // the new order is reported. An explicit Next/Previous replaces this request.
+                this.pendingSelection.orderOnly = true;
             }
+            p.setShuffle(false);
         } else {
+            this.originalOrder = list.slice();
             const index = p.getPlaylistIndex();
             const id = list[index];
-            const duplicate = this.shuffle && this.validVideo(id) && list.indexOf(id) !== list.lastIndexOf(id);
+            const duplicate = this.validVideo(id) && list.indexOf(id) !== list.lastIndexOf(id);
             this.shuffleAnchor = duplicate ? {originalIndex: index, index, tracking: true} : null;
-            p.setShuffle(this.shuffle);
+            p.setShuffle(true);
         }
     }
 

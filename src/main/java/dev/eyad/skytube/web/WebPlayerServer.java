@@ -41,6 +41,8 @@ public final class WebPlayerServer implements AutoCloseable {
     private static final Set<String> COMMANDS = Set.of("load", "stop", "play", "pause", "toggle", "prev",
             "next", "liveEdge", "seek", "seekBy", "rate", "shuffle", "chat", "lowLatency", "volume",
             "mute", "privacy", "provider", "manualPause", "live");
+    private static final Set<String> PREFERENCES = Set.of("rate", "shuffle", "chat", "lowLatency", "live",
+            "volume", "mute", "privacy", "provider");
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final String authority;
@@ -74,14 +76,17 @@ public final class WebPlayerServer implements AutoCloseable {
         JsonObject item = new JsonObject();
         item.addProperty("action", action);
         item.add("value", JSON.toJsonTree(value));
-        // Absolute preferences can be superseded even before a browser has started.
-        if (Set.of("rate", "shuffle", "chat", "lowLatency", "volume", "mute", "privacy", "provider").contains(action)) {
+        // An intervening transport command must see the preferences chosen before it.
+        if (PREFERENCES.contains(action)) {
             var iterator = pending.descendingIterator();
             while (iterator.hasNext()) {
                 JsonObject previous = iterator.next();
-                if (!previous.get("action").getAsString().equals(action)) continue;
+                String previousAction = previous.get("action").getAsString();
+                if (!PREFERENCES.contains(previousAction)) break;
+                if (!previousAction.equals(action)) continue;
                 if (previous.get("value").equals(item.get("value"))) return previous.get("id").getAsLong();
-                iterator.remove();
+                // Real changes to either live mode reset DVR tracking or re-enable catch-up.
+                if (!action.equals("live") && !action.equals("lowLatency")) iterator.remove();
                 break;
             }
         }

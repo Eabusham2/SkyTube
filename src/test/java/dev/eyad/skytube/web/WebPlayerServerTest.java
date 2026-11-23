@@ -1,9 +1,13 @@
 package dev.eyad.skytube.web;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.eyad.skytube.core.YouTubeSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.net.URI;
 import java.net.URLDecoder;
@@ -59,6 +63,85 @@ class WebPlayerServerTest {
             assertTrue(server.status().userPaused());
             assertEquals("M7lc1UVf-VE", server.status().accountTarget(YouTubeSource.parse("M7lc1UVf-VE"), 3, System.nanoTime()));
         }
+    }
+
+    @Test void sliderUpdatesDuringBrowserStartupPreserveTheLoadAndFinalPreferences() throws Exception {
+        try (var server = WebPlayerServer.start(); var http = HttpClient.newHttpClient()) {
+            String video = "M7lc1UVf-VE";
+            server.command("provider", "youtube");
+            server.command("load", Map.of("videoId", video, "live", false, "autoplay", false));
+            server.command("shuffle", true);
+            for (int i = 1; i <= 600; i++) {
+                server.command("rate", 1);
+                server.command("volume", i % 101);
+                server.command("chat", false);
+                server.command("lowLatency", true);
+                server.command("live", i >= 300);
+            }
+
+            var commands = firstPoll(server, http);
+            var delivered = new JsonObject();
+            for (var item : commands) {
+                var command = item.getAsJsonObject();
+                delivered.add(command.get("action").getAsString(), command.get("value"));
+            }
+            assertTrue(delivered.has("load"), "Settings must not evict the selected video before the first poll");
+            assertEquals(video, delivered.getAsJsonObject("load").get("videoId").getAsString());
+            assertEquals("youtube", delivered.get("provider").getAsString());
+            assertTrue(delivered.get("live").getAsBoolean());
+            assertEquals(600 % 101, delivered.get("volume").getAsInt());
+            assertEquals(9, commands.size(), "Keep both live modes while coalescing repeated settings");
+        }
+    }
+
+    @Test void pendingGoLiveUsesTheLiveModeSelectedAtTheTimeOfTheClick() throws Exception {
+        try (var server = WebPlayerServer.start(); var http = HttpClient.newHttpClient()) {
+            server.command("live", true);
+            server.command("liveEdge", null);
+            server.command("live", false);
+            var commands = firstPoll(server, http);
+            assertEquals(3, commands.size(), "A later mode change must not undo a queued Go live click");
+            assertEquals("live", commands.get(0).getAsJsonObject().get("action").getAsString());
+            assertTrue(commands.get(0).getAsJsonObject().get("value").getAsBoolean());
+            assertEquals("liveEdge", commands.get(1).getAsJsonObject().get("action").getAsString());
+            assertEquals("live", commands.get(2).getAsJsonObject().get("action").getAsString());
+            assertFalse(commands.get(2).getAsJsonObject().get("value").getAsBoolean());
+        }
+    }
+
+    @ParameterizedTest(name = "{0} {1} then {2} then {3}")
+    @CsvSource({"lowLatency,false,seekBy,true", "lowLatency,false,,true", "shuffle,true,next,false"})
+    void delayedPollPreservesModeChangesAndNavigation(String mode, boolean before, String transport, boolean after)
+            throws Exception {
+        try (var server = WebPlayerServer.start(); var http = HttpClient.newHttpClient()) {
+            server.command(mode, before);
+            if (transport != null) server.command(transport, "seekBy".equals(transport) ? -30 : null);
+            server.command(mode, after);
+
+            var commands = firstPoll(server, http);
+            assertEquals(transport == null ? 2 : 3, commands.size());
+            var first = commands.get(0).getAsJsonObject();
+            var last = commands.get(commands.size() - 1).getAsJsonObject();
+            assertEquals(mode, first.get("action").getAsString());
+            assertEquals(before, first.get("value").getAsBoolean());
+            if (transport != null) assertEquals(transport, commands.get(1).getAsJsonObject().get("action").getAsString());
+            assertEquals(mode, last.get("action").getAsString());
+            assertEquals(after, last.get("value").getAsBoolean());
+        }
+    }
+
+    private static JsonArray firstPoll(WebPlayerServer server, HttpClient http) throws Exception {
+        URI page = URI.create(server.pageUrl());
+        var poll = HttpRequest.newBuilder(page.resolve("sync"))
+                .header("Origin", "http://" + page.getAuthority())
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"ack":0,"status":{"ready":false,"state":-1,"currentTime":0,"duration":0,
+                        "playbackRate":1,"userPaused":false}}
+                        """)).build();
+        var response = http.send(poll, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode());
+        return JsonParser.parseString(response.body()).getAsJsonArray();
     }
 
     @Test void accountTargetsRequireFreshConfirmationOfTheLatestSelection() {

@@ -1,6 +1,6 @@
 # Request coverage
 
-This checklist distinguishes implemented behavior from what depends on YouTube, an account setup, or a particular graphics environment. The tests and their evidence are described in [TESTING.md](TESTING.md). The [1.0.3 requirement audit](AUDIT_1.0.3.md) records the latest complete review and targeted regressions; the [1.0.2 audit](AUDIT_1.0.2.md) and [1.0.1 audit](AUDIT_1.0.1.md) preserve the earlier fixes and external-playback diagnosis.
+This checklist distinguishes implemented behavior from what depends on YouTube, an account setup, or a particular graphics environment. The tests and their evidence are described in [TESTING.md](TESTING.md). The [1.0.4 requirement audit](AUDIT_1.0.4.md) records the latest complete review and targeted regressions. The [1.0.3](AUDIT_1.0.3.md), [1.0.2](AUDIT_1.0.2.md) and [1.0.1](AUDIT_1.0.1.md) audits preserve earlier fixes and the external-playback diagnosis.
 
 | Requested feature | Implementation | Verification / practical boundary |
 | --- | --- | --- |
@@ -8,7 +8,7 @@ This checklist distinguishes implemented behavior from what depends on YouTube, 
 | Center a video in the sky | Perspective sky plane; Load and Center capture the viewing direction | Real frame graph hook and shader linked against 1.21.11 |
 | Screen centered on the view | Initial video center remains at captured direction; Follow view is optional | Sidebar extends right, preserving the video center |
 | Play at 90% visible | Default 0.90 gate, frustum clipping plus 20×12 occlusion samples | Threshold boundary, near-plane, off-screen, rotated and occluded tests |
-| Adjustable visibility | Popup slider 0–100% | Normalized persisted values and core tests |
+| Adjustable visibility | Popup slider 0–100%, saving the whole percentage shown | Core tests plus a real slider click and 90%-visible world fixture |
 | Audio only with playback visibility | Auto pause + mute; screen off, world exit and covering menu inhibit playback | Gate tests and JavaScript pause/mute tests; actual decoder output depends on MCEF |
 | Manual pause | Popup + rebindable U key; visibility does not override it | Pause-latch and delayed command acknowledgment handling |
 | Rewind | Popup + J key; selectable interval | Seeks clamp to zero/duration; live rewind suspends catch-up |
@@ -21,8 +21,9 @@ This checklist distinguishes implemented behavior from what depends on YouTube, 
 | Live chat beside video | Optional 320px sidebar in shared browser | Official embed; disabled/restricted chats depend on broadcaster/YouTube |
 | Login from menu | Native Sign in opens normal-browser Google OAuth | Requires a personal Desktop OAuth client JSON; callback/PKCE tested with local service |
 | Type via /prefix message | Default /yt, editable prefix | Client-side interception; API message validation and request-body tests |
-| Privacy-enhanced provider | YouTube No-Cookie default | YouTube explicitly permits ads in this mode |
-| yout-ube provider | Listed observed No-Cookie destination; accepts yout-ube URLs | Live route checked; same destination is accurately labeled, no independent ad-free guarantee |
+| Normal YouTube provider | Official iframe at `www.youtube.com` | Production-adapter host/parameter tests; external playback remains an optional check |
+| Privacy-enhanced provider | YouTube No-Cookie default at `www.youtube-nocookie.com` | YouTube explicitly permits ads in this mode |
+| yout-ube provider | Listed observed No-Cookie destination; accepts yout-ube URLs | Previously observed redirect to `www.youtube-nocookie.com`; this is a route check, not a playback pass or an independent ad-free guarantee |
 | Provider selection while loading | Expandable provider chooser | Draft URL preserved when selecting a provider |
 | Skip ad hotkey | Rebindable N + popup/Interact buttons | Clicks only an actual visible/enabled Skip control; selector tests; real ads are variable |
 | Like / dislike | Native OAuth API actions, plus clear rating | Local fixture checks authenticated requests; no real account writes performed during tests |
