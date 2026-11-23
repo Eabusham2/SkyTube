@@ -24,15 +24,17 @@ final class PlaybackBridgeProbe implements AutoCloseable {
 
     PlaybackBridgeProbe(ClientGameTestContext context, SkyTubeClient mod) {
         this.context = context;
-        sync = context.computeOnClient(mc -> {
-            try {
-                var field = SkyTubeClient.class.getDeclaredField("server");
-                field.setAccessible(true);
-                return URI.create(((WebPlayerServer) field.get(mod)).pageUrl()).resolve("sync");
-            } catch (ReflectiveOperationException failure) {
-                throw new AssertionError("Cannot locate the game's player bridge", failure);
-            }
-        });
+        sync = context.computeOnClient(mc -> URI.create(gameBridge(mod).pageUrl()).resolve("sync"));
+    }
+
+    static WebPlayerServer gameBridge(SkyTubeClient mod) {
+        try {
+            var field = SkyTubeClient.class.getDeclaredField("server");
+            field.setAccessible(true);
+            return (WebPlayerServer) field.get(mod);
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError("Cannot locate the game's player bridge", failure);
+        }
     }
 
     void expect(String stage, boolean wantedPlay, boolean wantedMute) {

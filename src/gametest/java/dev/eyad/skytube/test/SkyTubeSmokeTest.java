@@ -124,9 +124,38 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
             context.waitTick();
             LockSupport.parkNanos(Duration.ofMillis(20).toNanos());
         }
+        // MCEF returns its Java wrapper while createImmediately() is still creating the native
+        // browser. Wait for the local page to commit, paint and complete its first sync before navigating it.
+        awaitBrowserPage(context, mod, "http://127.0.0.1:", "initial local player");
         context.runOnClient(mc -> mod.surface().browser().getCefBrowser().loadURL(FIXTURE));
-        context.waitFor(mc -> mod.surface().browser().getTextureView() != null
-                && mod.surface().browser().getCefBrowser().getURL().startsWith("data:text/html"), 2400);
+        awaitBrowserPage(context, mod, "data:text/html", "fixture");
+    }
+
+    private static void awaitBrowserPage(ClientGameTestContext context, SkyTubeClient mod,
+                                         String urlPrefix, String stage) {
+        var bridge = context.computeOnClient(mc -> PlaybackBridgeProbe.gameBridge(mod));
+        try {
+            context.waitFor(mc -> {
+                var browser = mod.surface().browser();
+                var cef = browser.getCefBrowser();
+                if (!bridge.status().pageReady() || cef.getIdentifier() <= 0
+                        || !cef.hasDocument() || browser.getTextureView() == null) return false;
+                String url = cef.getURL();
+                return url != null && url.startsWith(urlPrefix);
+            }, 2400);
+        } catch (AssertionError timeout) {
+            String status = context.computeOnClient(mc -> {
+                var browser = mod.surface().browser();
+                var cef = browser.getCefBrowser();
+                String url = cef.getURL();
+                boolean expectedPage = url != null && url.startsWith(urlPrefix);
+                String location = url == null || url.isBlank() ? "(empty)" : url.split(":", 2)[0];
+                return "pageReady=" + bridge.status().pageReady() + ", CEF id=" + cef.getIdentifier()
+                        + ", document=" + cef.hasDocument() + ", URL scheme=" + location
+                        + ", expected URL=" + expectedPage + ", texture=" + (browser.getTextureView() != null);
+            });
+            throw new AssertionError("Timed out waiting for the " + stage + " page: " + status, timeout);
+        }
     }
 
     private static boolean hasFixtureColors(Path image) {
