@@ -15,7 +15,7 @@ public record SkySettings(double visibilityThreshold, double cloudOpacity, boole
     }
 
     public static SkySettings defaults() {
-        return new SkySettings(DEFAULT_VISIBILITY, 0.0, false, DEFAULT_REWIND_SECONDS, 1.0, false, 1.0);
+        return new SkySettings(DEFAULT_VISIBILITY, 0.0, true, DEFAULT_REWIND_SECONDS, 1.0, false, 1.0);
     }
 
     static double bounded(double value, double min, double max, double fallback) {

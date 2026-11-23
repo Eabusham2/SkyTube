@@ -3,6 +3,7 @@ package dev.eyad.skytube.test;
 import dev.eyad.skytube.client.BrowserSurface;
 import dev.eyad.skytube.client.ControlScreen;
 import dev.eyad.skytube.client.InteractionScreen;
+import dev.eyad.skytube.client.ModConfig;
 import dev.eyad.skytube.client.SkyTubeClient;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -44,6 +45,22 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
     @Override
     public void runTest(ClientGameTestContext context) {
         SkyTubeClient mod = SkyTubeClient.get();
+        boolean originalAutoPause = context.computeOnClient(mc -> mod.config().pauseWhenNotVisible);
+        try {
+            runFixture(context, mod);
+        } finally {
+            context.runOnClient(mc -> {
+                mod.config().pauseWhenNotVisible = originalAutoPause;
+                mod.settingsChanged();
+            });
+        }
+    }
+
+    private static void runFixture(ClientGameTestContext context, SkyTubeClient mod) {
+        var defaults = new ModConfig();
+        if (!defaults.followView || !defaults.pauseWhenNotVisible || defaults.angularWidth != 54) {
+            throw new AssertionError("Expected a fresh 54° following screen with visibility auto-pause enabled");
+        }
         BrowserSurface activeSurface;
         try (TestSingleplayerContext world = createWorld(context)) {
             world.getClientWorld().waitForChunksRender();
@@ -88,8 +105,11 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
             context.setScreen(() -> null);
             context.runOnClient(mc -> {
                 mc.player.setXRot(-55);
-                mod.config().followView = true;
+                mod.config().followView = defaults.followView;
+                mod.config().pauseWhenNotVisible = defaults.pauseWhenNotVisible;
+                mod.config().angularWidth = defaults.angularWidth;
                 mod.config().cloudOpacity = 0;
+                mod.settingsChanged();
                 mc.options.cloudStatus().set(CloudStatus.FANCY);
             });
 

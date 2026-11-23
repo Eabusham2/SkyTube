@@ -6,11 +6,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SkySettingsTest {
     @Test
-    void defaultsToAnchoredSkyNinetyPercentVisibilityAndClearVideo() {
+    void defaultsToFollowingViewNinetyPercentVisibilityAndClearVideo() {
         SkySettings defaults = SkySettings.defaults();
         assertEquals(.90, defaults.visibilityThreshold());
         assertEquals(0, defaults.cloudOpacity());
-        assertFalse(defaults.followView());
+        assertTrue(defaults.followView());
         assertEquals(10, defaults.rewindSeconds());
         assertEquals(1, defaults.playbackRate());
         assertFalse(defaults.shuffle());
@@ -36,7 +36,7 @@ class SkySettingsTest {
 
     @Test
     void nonFiniteSettingsRecoverIndividualDefaults() {
-        SkySettings recovered = new SkySettings(Double.NaN, Double.NEGATIVE_INFINITY, false,
+        SkySettings recovered = new SkySettings(Double.NaN, Double.NEGATIVE_INFINITY, true,
                 10, Double.POSITIVE_INFINITY, false, Double.NaN);
         assertEquals(SkySettings.defaults(), recovered);
     }

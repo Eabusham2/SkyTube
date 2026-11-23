@@ -1,5 +1,6 @@
 package dev.eyad.skytube.client;
 
+import dev.eyad.skytube.core.SkyAnchor;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,7 +16,10 @@ class ModConfigTest {
     @Test
     void missingFileAndMissingFieldsHavePlayableDefaults() throws IOException {
         Path path = directory.resolve("settings.json");
-        assertEquals("nocookie", ModConfig.load(path).provider);
+        ModConfig fresh = ModConfig.load(path);
+        assertEquals("nocookie", fresh.provider);
+        assertTrue(fresh.followView);
+        assertTrue(fresh.pauseWhenNotVisible);
         Files.writeString(path, "{\"source\":\"M7lc1UVf-VE\"}");
         ModConfig loaded = ModConfig.load(path);
         assertEquals("M7lc1UVf-VE", loaded.source);
@@ -23,8 +27,38 @@ class ModConfigTest {
         assertEquals(0, loaded.cloudOpacity);
         assertEquals(10, loaded.rewindSeconds);
         assertEquals(1, loaded.volume);
-        assertFalse(loaded.followView);
+        assertTrue(loaded.followView);
+        assertTrue(loaded.pauseWhenNotVisible);
         assertTrue(loaded.screenOn);
+    }
+
+    @Test
+    void upgradesLegacyPlacementOnceAndKeepsPlaybackPreferences() throws IOException {
+        Path path = directory.resolve("settings.json");
+        for (String version : List.of("", "\"schemaVersion\":1,")) {
+            Files.writeString(path, """
+                    {%s"source":"M7lc1UVf-VE","provider":"youtube","screenOn":false,
+                    "followView":false,"visibilityThreshold":0.37,"volume":0.6,"showChat":true}
+                    """.formatted(version));
+            ModConfig upgraded = ModConfig.load(path);
+            assertEquals(2, upgraded.schemaVersion);
+            assertTrue(upgraded.followView);
+            assertTrue(upgraded.pauseWhenNotVisible);
+            upgraded.setFollowView(false, 120, -48);
+            upgraded.pauseWhenNotVisible = false;
+            upgraded.save(path);
+            ModConfig restored = ModConfig.load(path);
+            assertFalse(restored.followView);
+            assertEquals(120, restored.yaw);
+            assertEquals(-48, restored.pitch);
+            assertFalse(restored.pauseWhenNotVisible);
+            assertFalse(restored.screenOn);
+            assertEquals(.37, restored.visibilityThreshold);
+            assertEquals(.6, restored.volume);
+            assertEquals("M7lc1UVf-VE", restored.source);
+            assertEquals("youtube", restored.provider);
+            assertTrue(restored.showChat);
+        }
     }
 
     @Test
@@ -65,20 +99,26 @@ class ModConfigTest {
     }
 
     @Test
-    void leavingFollowLocksTheCurrentDirectionAndPersistsExactPoles() throws IOException {
+    void repeatedLockKeepsTheDisplayedDirectionUntilUnlockOrRecenter() throws IOException {
         ModConfig config = new ModConfig();
-        config.captureView(20, -90);
+        config.setFollowView(false, 20, -90);
         config.setFollowView(false, 80, -15);
         assertEquals(20, config.yaw);
         assertEquals(-90, config.pitch);
         config.setFollowView(true, 80, -15);
+        config.setFollowView(true, -40, -35);
         config.setFollowView(false, 550, 90);
         assertFalse(config.followView);
         Path path = directory.resolve("settings.json");
         config.save(path);
         ModConfig restored = ModConfig.load(path);
         assertEquals(-170, restored.yaw);
-        assertEquals(90, restored.pitch);
+        assertEquals(SkyAnchor.aboveHorizon(550, 90, restored.angularWidth).pitch(), restored.pitch);
+        assertTrue(restored.pitch < 0);
+        assertFalse(restored.followView);
+        restored.captureView(42, -70);
+        assertEquals(42, restored.yaw);
+        assertEquals(-70, restored.pitch);
         assertFalse(restored.followView);
     }
 
@@ -107,6 +147,6 @@ class ModConfigTest {
         assertEquals(2, loaded.playbackRate);
         assertEquals(1, loaded.volume);
         assertEquals(0, loaded.cloudOpacity);
-        assertTrue(loaded.pitch <= 90);
+        assertTrue(loaded.pitch < 0);
     }
 }

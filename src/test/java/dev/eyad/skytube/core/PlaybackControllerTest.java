@@ -103,6 +103,43 @@ class PlaybackControllerTest {
     }
 
     @Test
+    void disablingVisibilityPauseAllowsHiddenPlaybackButHonorsManualPauseAndPower() {
+        player.setPauseWhenNotVisible(false);
+        var hidden = player.tick(true, 0, 100);
+        assertTrue(hidden.playing());
+        assertFalse(hidden.muted());
+        player.setManualPaused(true);
+        var paused = player.tick(true, 0, 200);
+        assertFalse(paused.playing());
+        assertTrue(paused.manualPaused());
+        assertFalse(paused.autoPaused());
+        player.setManualPaused(false);
+        var off = player.tick(false, 1, 300);
+        assertFalse(off.playing());
+        assertTrue(off.muted());
+        assertTrue(player.tick(true, 0, 400).playing());
+        player.newSource();
+        assertFalse(player.state().playing());
+        assertTrue(player.state().muted());
+    }
+
+    @Test
+    void reenablingVisibilityPauseReappliesTheConfiguredThresholdAndDebounce() {
+        player.setVisibilityThreshold(.65);
+        player.setPauseWhenNotVisible(false);
+        assertTrue(player.tick(true, .35, 0).playing());
+        player.setPauseWhenNotVisible(true);
+        var obstructed = player.tick(true, .35, 100);
+        assertFalse(obstructed.playing());
+        assertTrue(obstructed.muted());
+        assertFalse(player.tick(true, .65, 200).playing());
+        assertTrue(player.tick(true, .65, 400).playing());
+        assertFalse(player.tick(true, 0, 401).playing());
+        player.setPauseWhenNotVisible(false);
+        assertTrue(player.tick(true, 0, 402).playing());
+    }
+
+    @Test
     void aMissingViewOrInvalidFractionFailsClosedAndClockReversalStartsFresh() {
         player.tick(true, 1, 1_000);
         player.tick(true, 1, 100);

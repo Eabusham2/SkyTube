@@ -55,7 +55,7 @@ public final class SkyTubeClient implements ClientModInitializer {
     private boolean inferredLive;
     private String message = "";
     private long messageUntil;
-    private KeyMapping menu, pause, rewind, skipAd, center, toggle, faster, slower;
+    private KeyMapping menu, pause, rewind, skipAd, center, lock, unlock, toggle, faster, slower;
 
     @Override public void onInitializeClient() {
         instance = this;
@@ -65,6 +65,7 @@ public final class SkyTubeClient implements ClientModInitializer {
             config = new ModConfig();
         }
         playback.setVisibilityThreshold(config.visibilityThreshold);
+        playback.setPauseWhenNotVisible(config.pauseWhenNotVisible);
         renderer = new SkyVideoRenderer(this);
         account = new YouTubeAccount(configDir, uri -> Util.getPlatform().openUri(uri));
         KeyMapping.Category category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("skytube", "controls"));
@@ -73,6 +74,8 @@ public final class SkyTubeClient implements ClientModInitializer {
         rewind = key("rewind", GLFW.GLFW_KEY_J, category);
         skipAd = key("skip_ad", GLFW.GLFW_KEY_N, category);
         center = key("center", GLFW.GLFW_KEY_K, category);
+        lock = key("lock", GLFW.GLFW_KEY_H, category);
+        unlock = key("unlock", GLFW.GLFW_KEY_G, category);
         toggle = key("toggle", GLFW.GLFW_KEY_V, category);
         faster = key("faster", GLFW.GLFW_KEY_RIGHT_BRACKET, category);
         slower = key("slower", GLFW.GLFW_KEY_LEFT_BRACKET, category);
@@ -113,6 +116,8 @@ public final class SkyTubeClient implements ClientModInitializer {
         while (rewind.consumeClick()) rewind();
         while (skipAd.consumeClick()) skipAd();
         while (center.consumeClick()) center();
+        while (lock.consumeClick()) setFollowView(false);
+        while (unlock.consumeClick()) setFollowView(true);
         while (toggle.consumeClick()) toggleScreen();
         while (faster.consumeClick()) changeRate(1);
         while (slower.consumeClick()) changeRate(-1);
@@ -120,10 +125,10 @@ public final class SkyTubeClient implements ClientModInitializer {
         var status = server.status();
         // A native Pause and an iframe Play can both happen between two browser reports.
         if (status.appliedCommand() >= manualCommand) playback.setManualPaused(status.userPaused());
-        double visible = renderer.visibleFraction();
-        if (client.screen instanceof InteractionScreen) visible = 1;
-        else if (client.screen != null && !(client.screen instanceof ChatScreen)) visible = 0;
-        boolean enabled = config.screenOn && loadedSource != null && client.isWindowActive();
+        boolean interacting = client.screen instanceof InteractionScreen;
+        double visible = interacting ? 1 : renderer.visibleFraction();
+        boolean enabled = config.screenOn && loadedSource != null && client.isWindowActive()
+                && (client.screen == null || client.screen instanceof ChatScreen || interacting);
         PlaybackController.State desired = playback.tick(enabled, visible, System.nanoTime() / 1_000_000);
         if (sentState == null || desired.muted() != sentState.muted()) server.command("mute", desired.muted());
         boolean escapedPause = !desired.playing() && (status.state() == 1 || status.state() == 3)
@@ -137,7 +142,7 @@ public final class SkyTubeClient implements ClientModInitializer {
     }
 
     public void load(String url) { load(url, true); }
-    private void load(String url, boolean centerNow) {
+    private void load(String url, boolean userRequested) {
         YouTubeSource source;
         try { source = YouTubeSource.parse(url); }
         catch (IllegalArgumentException invalid) { notifyUser(invalid.getMessage()); return; }
@@ -145,9 +150,9 @@ public final class SkyTubeClient implements ClientModInitializer {
             if (server == null) server = WebPlayerServer.start();
             if (surface == null) surface = new BrowserSurface();
             config.source = url.strip();
-            if (centerNow) config.screenOn = true;
+            if (userRequested) config.screenOn = true;
             boolean liveLink = config.source.matches("(?i)(?:https?://)?(?:www\\.|m\\.|music\\.)?(?:youtube\\.com|yout-ube\\.com)/live/.*");
-            if (centerNow) {
+            if (userRequested) {
                 if (liveLink) config.live = true;
                 else if (inferredLive) config.live = false;
             }
@@ -171,9 +176,9 @@ public final class SkyTubeClient implements ClientModInitializer {
             loadedSource = source;
             sentShuffle = null;
             syncPreferences();
-            if (centerNow) center();
             save();
-            notifyUser("Loaded. Close the menu and look at the screen to play.");
+            notifyUser(config.pauseWhenNotVisible ? "Loaded. Close the menu and look at the screen to play."
+                    : "Loaded. Close the menu to play.");
         } catch (IOException failure) {
             notifyUser("Could not start local video player. Check latest.log.");
             LOGGER.error("Player server failed", failure);
@@ -183,6 +188,7 @@ public final class SkyTubeClient implements ClientModInitializer {
     public void settingsChanged() {
         config.normalize();
         playback.setVisibilityThreshold(config.visibilityThreshold);
+        playback.setPauseWhenNotVisible(config.pauseWhenNotVisible);
         if (surface != null) surface.chat(config.showChat);
         syncPreferences();
         save();
@@ -230,9 +236,11 @@ public final class SkyTubeClient implements ClientModInitializer {
         config.captureView(camera.yRot(), camera.xRot());
         save();
     }
-    public void toggleFollowView() {
+    public void setFollowView(boolean enabled) {
+        if (config.followView == enabled) return;
         var camera = Minecraft.getInstance().gameRenderer.getMainCamera();
-        config.setFollowView(!config.followView, camera.yRot(), camera.xRot());
+        config.setFollowView(enabled, camera.yRot(), camera.xRot());
+        save();
     }
     public void changeRate(int direction) {
         double current = config.playbackRate;
@@ -289,12 +297,13 @@ public final class SkyTubeClient implements ClientModInitializer {
         if (!server.status().message().isEmpty()) return server.status().message();
         if (!server.status().ready()) return "Waiting for YouTube. Interact to handle consent or playback prompts.";
         String transportState = playback.state().manualPaused() ? "Manual pause" : playback.state().autoPaused()
-                ? "Waiting for visibility" : switch (server.status().state()) {
+                ? (config.pauseWhenNotVisible ? "Waiting for visibility" : "Paused") : switch (server.status().state()) {
                     case 0 -> "Ended"; case 1 -> "Playing"; case 2 -> "Paused"; case 3 -> "Buffering"; default -> "Ready";
                 };
-        return String.format(Locale.ROOT, "%s · %.1f%% visible · %.0f%% required · %.2f×",
-                transportState,
-                renderer.visibleFraction() * 100, config.visibilityThreshold * 100, server.status().playbackRate());
+        String threshold = config.pauseWhenNotVisible
+                ? String.format(Locale.ROOT, "%.0f%% required", config.visibilityThreshold * 100) : "Visibility auto-pause off";
+        return String.format(Locale.ROOT, "%s · %.1f%% visible · %s · %.2f×", transportState,
+                renderer.visibleFraction() * 100, threshold, server.status().playbackRate());
     }
     private void releaseMedia() {
         if (surface != null) { surface.close(); surface = null; }

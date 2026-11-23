@@ -58,8 +58,9 @@ public final class ControlScreen extends Screen {
     }
     private int y() { return contentTop + row * 22; }
     private void nextRow() { row++; }
+    private int columnWidth(int columns) { return (panelWidth - (columns - 1) * 4) / columns; }
     private Button button(String label, int column, int columns, Runnable action) {
-        int w = (panelWidth - (columns - 1) * 4) / columns;
+        int w = columnWidth(columns);
         return addRenderableWidget(Button.builder(Component.literal(label), b -> action.run())
                 .bounds(left + column * (w + 4), y(), w, 20).build());
     }
@@ -123,14 +124,20 @@ public final class ControlScreen extends Screen {
     }
     private void displayPage() {
         ModConfig c = mod.config();
-        slider("Visibility to play", c.visibilityThreshold, v -> c.visibilityThreshold = Math.round(v * 100) / 100.0,
+        toggle("Auto-pause by visibility", c.pauseWhenNotVisible, 0, 1, () -> c.pauseWhenNotVisible = !c.pauseWhenNotVisible);
+        nextRow();
+        slider("Visibility to play", 0, 1, c.visibilityThreshold, v -> c.visibilityThreshold = Math.round(v * 100) / 100.0,
                 v -> Math.round(v * 100) + "%");
-        slider("Cloud opacity over video", c.cloudOpacity, v -> c.cloudOpacity = Math.round(v * 100) / 100.0,
+        nextRow();
+        slider("Cloud opacity over video", 0, 1, c.cloudOpacity, v -> c.cloudOpacity = Math.round(v * 100) / 100.0,
                 v -> Math.round(v * 100) + "%");
-        slider("Screen width", (c.angularWidth - 15) / 95, v -> c.angularWidth = 15 + v * 95, v -> Math.round(15 + v * 95) + "°");
-        slider("Volume", c.volume, v -> c.volume = v, v -> Math.round(v * 100) + "%");
-        toggle("Follow view", c.followView, 0, 2, mod::toggleFollowView);
-        toggle("Live chat", c.showChat, 1, 2, () -> c.showChat = !c.showChat);
+        nextRow();
+        slider("Screen width", 0, 2, (c.angularWidth - 15) / 95, v -> c.angularWidth = 15 + v * 95, v -> Math.round(15 + v * 95) + "°");
+        slider("Volume", 1, 2, c.volume, v -> c.volume = v, v -> Math.round(v * 100) + "%");
+        nextRow();
+        button("Lock position", 0, 3, () -> { mod.setFollowView(false); rebuildWidgets(); }).active = c.followView;
+        button("Unlock (follow)", 1, 3, () -> { mod.setFollowView(true); rebuildWidgets(); }).active = !c.followView;
+        toggle("Live chat", c.showChat, 2, 3, () -> c.showChat = !c.showChat);
         nextRow();
         toggle("Live stream", c.live, 0, 3, () -> c.live = !c.live);
         toggle("Catch-up", c.lowLatency, 1, 3, () -> c.lowLatency = !c.lowLatency);
@@ -201,13 +208,13 @@ public final class ControlScreen extends Screen {
             signIn.setMessage(Component.literal(canSignIn ? "Sign in" : "Connected"));
         }
     }
-    private void slider(String label, double value, DoubleConsumer apply, DoubleFunction<String> format) {
-        addRenderableWidget(new AbstractSliderButton(left, y(), panelWidth, 20, Component.empty(), value) {
+    private void slider(String label, int column, int columns, double value, DoubleConsumer apply, DoubleFunction<String> format) {
+        int w = columnWidth(columns);
+        addRenderableWidget(new AbstractSliderButton(left + column * (w + 4), y(), w, 20, Component.empty(), value) {
             { updateMessage(); }
             @Override protected void updateMessage() { setMessage(Component.literal(label + ": " + format.apply(value))); }
             @Override protected void applyValue() { apply.accept(value); mod.settingsChanged(); }
         });
-        nextRow();
     }
     @Override public void tick() {
         if (transport != null) transport.setMessage(Component.literal(mod.manuallyPaused() ? "Resume" : "Pause"));

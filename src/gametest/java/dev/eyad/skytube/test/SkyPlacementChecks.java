@@ -18,6 +18,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import org.lwjgl.glfw.GLFW;
 
 final class SkyPlacementChecks {
     private SkyPlacementChecks() {}
@@ -120,18 +121,19 @@ final class SkyPlacementChecks {
             mc.player.setYRot(0);
         });
         context.waitTicks(4);
-        context.runOnClient(mc -> mod.center());
+        context.getInput().pressKey(GLFW.GLFW_KEY_K);
         context.runOnClient(mc -> mc.player.setYRot(120));
         check(context, mod, "following-turn", 1, 1, true);
-        context.runOnClient(mc -> {
-            mod.toggleFollowView();
-            mod.settingsChanged();
-        });
+        context.getInput().pressKey(GLFW.GLFW_KEY_H);
+        context.waitFor(mc -> !mod.config().followView, 20);
         check(context, mod, "locked-at-last-view", 1, 1, true);
         context.runOnClient(mc -> mc.player.setYRot(-60));
         check(context, mod, "turned-away", 0, 0, false);
-        context.runOnClient(mc -> mod.center());
+        context.getInput().pressKey(GLFW.GLFW_KEY_K);
         check(context, mod, "recentered", 1, 1, true);
+        if (context.computeOnClient(mc -> mod.config().followView)) {
+            throw new AssertionError("K changed locked placement to follow mode");
+        }
         bridge.expect("recentered", true, false);
         context.runOnClient(mc -> mc.setWindowActive(false));
         bridge.expect("window focus lost", false, true);
@@ -142,16 +144,30 @@ final class SkyPlacementChecks {
         context.setScreen(() -> null);
         bridge.expect("covering menu closed", true, false);
         // Retry feedback adds chat lines that would cover the earlier framebuffer samples.
+        double lockedYaw = context.computeOnClient(mc -> mod.config().yaw);
+        context.runOnClient(mc -> mc.player.setYRot(120));
+        context.waitTicks(4);
         bridge.checkLoadingControls(mod);
+        if (context.computeOnClient(mc -> mod.config().followView || mod.config().yaw != lockedYaw)) {
+            throw new AssertionError("Loading a different source moved the pinned screen");
+        }
+        context.runOnClient(mc -> mc.player.setYRot((float) lockedYaw));
+        context.waitFor(mc -> mod.renderer().visibleFraction() == 1, 200);
+        bridge.expect("back at the locked heading after changing source", true, false);
         context.runOnClient(mc -> mod.toggleScreen());
         bridge.expect("power off after playing", false, true);
         context.runOnClient(mc -> mod.toggleScreen());
         bridge.expect("playing before world exit", true, false);
+        HorizonChecks.run(context, world, mod, bridge);
     }
 
     private static void checkVisibilitySlider(ClientGameTestContext context, TestSingleplayerContext world,
                                               SkyTubeClient mod, PlaybackBridgeProbe bridge) {
         context.setScreen(() -> new ControlScreen(mod, 1));
+        context.clickScreenButton("Lock position");
+        context.waitFor(mc -> !mod.config().followView, 20);
+        context.clickScreenButton("Unlock (follow)");
+        context.waitFor(mc -> mod.config().followView, 20);
         double selected = context.computeOnClient(mc -> {
             mc.screen.resize(320, 240);
             // These clicks land one pixel inside the endpoints, where the label still reads 100% or 0%.

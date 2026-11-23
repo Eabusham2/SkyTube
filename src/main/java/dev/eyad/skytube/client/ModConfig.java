@@ -2,6 +2,7 @@ package dev.eyad.skytube.client;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
 import dev.eyad.skytube.core.SkyAnchor;
 import dev.eyad.skytube.core.SkySettings;
 import java.io.IOException;
@@ -14,7 +15,8 @@ import java.util.Set;
 /** Small, versioned preferences file. OAuth material is owned by the separate account store. */
 public final class ModConfig {
     private static final Gson JSON = new GsonBuilder().setPrettyPrinting().create();
-    public int schemaVersion = 1;
+    private static final int CURRENT_SCHEMA = 2;
+    public int schemaVersion = CURRENT_SCHEMA;
     public String source = "";
     public String provider = "nocookie";
     public double visibilityThreshold = 0.90;
@@ -24,7 +26,8 @@ public final class ModConfig {
     public double volume = 1;
     public int rewindSeconds = 10;
     public boolean screenOn = true;
-    public boolean followView = false;
+    public boolean followView = true;
+    public boolean pauseWhenNotVisible = true;
     public boolean shuffle = false;
     public boolean live = false;
     public boolean lowLatency = true;
@@ -34,9 +37,9 @@ public final class ModConfig {
     public double pitch = -25;
 
     public void captureView(double cameraYaw, double cameraPitch) {
-        var direction = new SkyAnchor.Direction(
+        var direction = SkyAnchor.aboveHorizon(
                 Double.isFinite(cameraYaw) ? cameraYaw : 0,
-                Double.isFinite(cameraPitch) ? cameraPitch : -25);
+                Double.isFinite(cameraPitch) ? cameraPitch : -25, angularWidth);
         yaw = direction.yaw();
         pitch = direction.pitch();
     }
@@ -64,8 +67,14 @@ public final class ModConfig {
     public static ModConfig load(Path path) throws IOException {
         if (!Files.exists(path)) return new ModConfig();
         try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            ModConfig config = JSON.fromJson(reader, ModConfig.class);
-            if (config == null) config = new ModConfig();
+            JsonObject stored = JSON.fromJson(reader, JsonObject.class);
+            if (stored == null) return new ModConfig();
+            ModConfig config = JSON.fromJson(stored, ModConfig.class);
+            // The old format saved followView=false even when placement had never been changed.
+            if (!stored.has("schemaVersion") || config.schemaVersion < CURRENT_SCHEMA) {
+                config.followView = true;
+                config.schemaVersion = CURRENT_SCHEMA;
+            }
             config.normalize();
             return config;
         } catch (RuntimeException malformed) {

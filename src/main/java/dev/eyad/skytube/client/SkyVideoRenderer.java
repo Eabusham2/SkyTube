@@ -12,6 +12,7 @@ import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.VertexFormat;
+import dev.eyad.skytube.core.SkyAnchor;
 import dev.eyad.skytube.core.Visibility;
 import java.util.ArrayList;
 import java.util.List;
@@ -67,14 +68,16 @@ public final class SkyVideoRenderer implements AutoCloseable {
             return;
         }
 
-        double yaw = Math.toRadians(config.followView ? camera.yRot() : config.yaw);
-        double pitch = Math.toRadians(config.followView ? camera.xRot() : config.pitch);
+        var placement = SkyAnchor.aboveHorizon(config.followView ? camera.yRot() : config.yaw,
+                config.followView ? camera.xRot() : config.pitch, config.angularWidth);
+        double yaw = Math.toRadians(placement.yaw());
+        double pitch = Math.toRadians(placement.pitch());
         Vector3f normal = new Vector3f((float)(-Math.sin(yaw) * Math.cos(pitch)), (float)-Math.sin(pitch),
                 (float)(Math.cos(yaw) * Math.cos(pitch)));
         Vector3f right = new Vector3f((float)-Math.cos(yaw), 0, (float)-Math.sin(yaw));
         Vector3f up = new Vector3f(right).cross(normal).normalize();
         float halfWidth = (float)Math.tan(Math.toRadians(config.angularWidth / 2));
-        float halfHeight = halfWidth * BrowserSurface.VIDEO_HEIGHT / BrowserSurface.VIDEO_WIDTH;
+        float halfHeight = (float)(halfWidth * SkyAnchor.VIDEO_HEIGHT_TO_WIDTH);
         // Chat extends to the right; the video itself remains centered at the chosen sky direction.
         float rightWidth = halfWidth * (config.showChat ? 1 + 2.0f * BrowserSurface.CHAT_WIDTH / BrowserSurface.VIDEO_WIDTH : 1);
         corners[0] = point(normal, right, up, -halfWidth, halfHeight);

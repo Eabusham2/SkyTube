@@ -12,7 +12,8 @@ public final class PlaybackController {
     public record State(boolean playing, boolean muted, boolean autoPaused, boolean manualPaused) { }
 
     private double threshold;
-    private boolean screenOn;
+    private boolean enabled;
+    private boolean pauseWhenNotVisible = true;
     private boolean visible;
     private boolean manualPaused;
     private boolean transitionPending;
@@ -37,7 +38,7 @@ public final class PlaybackController {
 
     public void newSource() {
         manualPaused = false;
-        screenOn = false;
+        enabled = false;
         visible = false;
         transitionPending = false;
     }
@@ -46,16 +47,20 @@ public final class PlaybackController {
         manualPaused = paused;
     }
 
+    public void setPauseWhenNotVisible(boolean pauseWhenNotVisible) {
+        this.pauseWhenNotVisible = pauseWhenNotVisible;
+    }
+
     public State state() {
-        boolean inhibited = !screenOn || !visible;
+        boolean inhibited = !enabled || (pauseWhenNotVisible && !visible);
         return new State(!inhibited && !manualPaused, inhibited, inhibited, manualPaused);
     }
 
     /** nowMs is monotonic time in milliseconds. Missing geometry should be passed as zero. */
-    public State tick(boolean screenOn, double visibleFraction, long nowMs) {
-        this.screenOn = screenOn;
+    public State tick(boolean enabled, double visibleFraction, long nowMs) {
+        this.enabled = enabled;
         double fraction = SkySettings.bounded(visibleFraction, 0.0, 1.0, 0.0);
-        if (!screenOn || fraction == 0.0) {
+        if (!enabled || fraction == 0.0) {
             visible = false;
             transitionPending = false;
         } else {

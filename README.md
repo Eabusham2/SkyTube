@@ -2,7 +2,7 @@
 
 **A YouTube cinema in your Minecraft sky.** Client-side Fabric mod for **Minecraft Java 1.21.11**.
 
-Paste a video, live stream or playlist, center its screen where you are looking, and keep playing Minecraft. Playback and audio pause when too little of the video is visible. The default visibility threshold is **90%**, and both the threshold and cloud opacity are adjustable.
+Paste a video, live stream or playlist and watch it follow your view in the Minecraft sky. The screen stops above the horizon when you look down, accounting for its adjustable size. Playback and audio pause below **90% visibility** by default; the threshold, automatic visibility pause and cloud opacity are configurable.
 
 [Download releases](https://github.com/Eabusham2/SkyTube/releases) · [Report an issue](https://github.com/Eabusham2/SkyTube/issues) · [Account setup](docs/ACCOUNT_SETUP.md)
 
@@ -22,7 +22,7 @@ The first video initializes MCEF asynchronously and may download its Chromium na
 1. Look toward the part of the sky where you want the video.
 2. Press **Y**, paste a YouTube link, choose a provider if desired, and click **Load**.
 3. Close the menu. The video starts when the configured fraction is visible.
-4. Press **K** to recenter the video at your current view. Its sky direction stays fixed as you turn; **Follow view** makes it stay centered instead.
+4. The screen follows your view by default. Press **H** to lock its current sky position, **G** to unlock and follow again, or **K** to recenter a locked screen.
 5. Use **Interact** in the Player page to click YouTube's own player, consent dialog, captions, controls and chat sidebar.
 
 Supported inputs include ordinary watch links, `youtu.be`, Shorts, `/live/`, embed links, video IDs, playlist links and playlist IDs. Start times such as `?t=1m30s` are preserved. A link containing a video and playlist starts at that video when it belongs to the playlist.
@@ -38,14 +38,16 @@ Every key can be changed in **Options → Controls → Key Binds → SkyTube**.
 | **J** | Rewind, initially 10 seconds |
 | **N** | Click YouTube's available **Skip Ad** button |
 | **K** | Center the sky video on the current view |
+| **H** | Lock the current sky position |
+| **G** | Unlock and follow the current view |
 | **V** | Toggle the sky screen; hidden screen stops playback and audio |
 | **[** / **]** | Decrease / increase playback speed |
 
-The popup has **Player**, **Display**, and **Account** pages. It includes Load, provider selection, play/pause, rewind, ad skip, previous/next, shuffle, speed, Go live, Interact, centering, screen toggle, volume, visibility threshold, screen size, cloud opacity, follow view, live mode and catch-up. Settings save automatically.
+The popup has **Player**, **Display**, and **Account** pages. It includes Load, provider selection, play/pause, rewind, ad skip, previous/next, shuffle, speed, Go live, Interact, centering, screen toggle, volume, visibility threshold, automatic visibility pause, screen size, cloud opacity, position lock/unlock, live mode and catch-up. Settings save automatically.
 
 Rewind, Previous, Next and Go live require the chosen player to finish loading. If you press one of these controls too early, a message says the action did not run and asks you to retry when ready.
 
-Manual pause is remembered while looking away and back. Automatic visibility changes do not cancel it. Opening a covering game menu, leaving the world, turning the screen off, or losing window focus inhibits playback. The interaction screen counts as visible because it shows the actual video. Chat input remains usable without stopping the sky video.
+Manual pause is remembered while looking away and back. Automatic visibility changes do not cancel it. Disable **Auto-pause by visibility** on the Display page to keep playback and audio running when looking away or when terrain covers the screen, including at 0% visibility. Manual pause, a covering game menu, leaving the world, turning the screen off and losing window focus still inhibit playback. The interaction screen counts as visible because it shows the actual video. Chat input remains usable without stopping the sky video.
 
 ## Providers and advertisements
 
@@ -61,7 +63,13 @@ The provider dropdown is available when loading links and can also change an exi
 
 ## Sky placement, visibility and clouds
 
-The display is an actual perspective-projected sky plane, rendered before terrain. It follows the player's position while retaining its chosen direction, so walking does not leave it behind. Terrain and entities render naturally in front of it. The optional chat panel is appended on the right; the **video remains centered**.
+The display is an actual perspective-projected sky plane, rendered before terrain. It follows your view by default, with its bottom edge held at or above the horizontal sky horizon. Looking downward stops the screen's vertical movement at that limit while it continues following your horizontal turns. Looking far enough down can move the screen out of view; the visibility rule still applies unless disabled.
+
+**Y → Display → Screen width** adjusts its angular width from **15° to 110°**, with **54°** as the default. Height scales proportionally, and the horizon limit adapts to the selected size. The limit follows the horizontal horizon; hills, buildings and entities can still obscure the video and affect its measured visibility.
+
+**Lock position** pins the currently displayed direction. It still travels with you, so walking or flying does not leave it behind. **Unlock (follow)** resumes following your view. Repeated Lock presses and loading another video keep the same position. Settings from version 1.0.6 or earlier switch to following once during upgrade; later lock choices are saved normally.
+
+Terrain and entities render naturally in front of the screen. The optional chat panel is appended on the right; the **video itself remains centered** until constrained by the horizon.
 
 The visibility threshold uses the video's frustum-clipped projected area plus an occlusion sample grid. It samples **20 × 12 rays at most ten times per second**, using the current rendered terrain sections and entity bounds. Source and flowing lava count as opaque; transparent water does not. This includes overhead blocks beyond the horizontal render-distance radius and excludes loaded sections that are not drawn. The visibility slider saves the whole percentage shown in its label. Short debounce intervals avoid rapid play/pause flicker at the threshold. This is an estimate rather than pixel-perfect measurement of every transparent pixel, entity silhouette, particle or shader effect. HUD elements and the chosen cloud opacity are not subtracted from this estimate. The chat sidebar does not count toward the video's visibility percentage.
 
