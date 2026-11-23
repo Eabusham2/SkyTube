@@ -1,4 +1,4 @@
-"""Verify native observations from the current CI run before allowing release packaging."""
+"""Verify native observations from the current CI run before allowing release publication."""
 
 import json
 import math

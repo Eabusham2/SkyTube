@@ -32,10 +32,8 @@ node --test tests/web/*.test.js
 ./gradlew clean build
 ```
 
-The installable JAR and the companion source JAR are in `build/libs/`. The release workflow reads the project version from `gradle.properties` and verifies that it matches the existing `v`-prefixed semantic version tag (for example, `v1.0.0` or `v1.1.0-beta.1`). Pushing that tag or manually dispatching the release workflow for the tag builds both JARs, runs the tests, and publishes both assets and `SHA256SUMS.txt` to GitHub Releases.
+The installable JAR and the companion source JAR are in `build/libs/`. The single GitHub Actions workflow reads `mod_version` from `gradle.properties`. A new version pushed to `main` is tagged and released only after all required checks pass. The release contains both JARs and `SHA256SUMS.txt`; see the [release instructions](../README.md#build-and-verify).
 
 To verify a downloaded release, put both JARs and the checksum file in the same directory and run `sha256sum --check SHA256SUMS.txt`. Windows PowerShell users can compare the output of `Get-FileHash -Algorithm SHA256 *.jar` to the two listed digests.
 
-The graphical test uses `./gradlew runClientGameTest` with a display, OpenGL 3.3 or later, and the platform libraries required by Chromium. It creates a temporary singleplayer world under `build/run/clientGameTest/`, opens SkyTube’s controls, and loads a local two-color browser page. It reads back the game’s framebuffer to check the sky screen with both cloud modes and after the screen is hidden. CI runs the same task under Xvfb and keeps screenshots and the game log with the workflow run.
-
-On systems that can launch Minecraft but lack native Chromium IPC, `./gradlew runClientGameTest -PsmokeTextureOnly=true` injects a generated GPU texture from the test module. It exercises the same sky rendering and pixel checks. A normal run, including GitHub CI, always uses Chromium.
+Native graphical tests additionally need a display, OpenGL 3.3 or later, and the platform libraries required by Chromium. See [testing](TESTING.md) for the graphical fixture, software-rendered cloud checks, and optional external playback check.

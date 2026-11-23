@@ -4,9 +4,7 @@
 
 Paste a video, live stream or playlist, center its screen where you are looking, and keep playing Minecraft. Playback and audio pause when too little of the video is visible. The default visibility threshold is **90%**, and both the threshold and cloud opacity are adjustable.
 
-[Download releases](https://github.com/Eabusham2/SkyTube/releases) · [Report an issue](https://github.com/Eabusham2/SkyTube/issues) · [Feature checklist](docs/FEATURES.md) · [Latest requirement audit](docs/AUDIT_1.0.5.md) · [Account setup](docs/ACCOUNT_SETUP.md)
-
-**External playback check:** the GitHub-hosted runner receives YouTube's “Sign in to confirm you're not a bot” screen in all three provider settings. Ordinary WebM clips play in the same browser. At the project owner's request, this service-dependent test is optional for releases; required Java/JavaScript tests, Linux/Windows builds and native Minecraft/Chromium checks remain enabled. macOS compilation can be requested separately. Actual YouTube playback was not verified on that runner. See the [recorded requirement audit](docs/AUDIT_1.0.1.md#recorded-external-playback-results).
+[Download releases](https://github.com/Eabusham2/SkyTube/releases) · [Report an issue](https://github.com/Eabusham2/SkyTube/issues) · [Account setup](docs/ACCOUNT_SETUP.md)
 
 ## Install
 
@@ -57,7 +55,7 @@ Manual pause is remembered while looking away and back. Automatic visibility cha
 | **YouTube** | Uses `www.youtube.com` in the official IFrame Player. |
 | **yout-ube (No-Cookie destination)** | Uses the No-Cookie destination to which `yout-ube.com` currently redirects. Retains SkyTube's controls and playlist state without navigating through that intermediary. |
 
-The provider dropdown is available when loading links and can also change an existing player. `yout-ube` links can be pasted directly. The observed third-party route was checked on November 22, 2026; it is not a separate playback backend or a guarantee about that website's future behavior.
+The provider dropdown is available when loading links and can also change an existing player. `yout-ube` links can be pasted directly. [yout-ube describes its service as a redirect to YouTube No-Cookie](https://www.yout-ube.com/), so its option uses the same embed host as No-Cookie.
 
 **No-Cookie mode is not a guaranteed ad blocker.** [YouTube documents that privacy-enhanced embeds can still show non-personalized ads](https://support.google.com/youtube/answer/171780?hl=en). The **Skip Ad** hotkey clicks a visible, enabled Skip button in the actual player. Each press checks once; if Skip is not available yet, press again after the button appears. It does not fast-forward normal videos or bypass non-skippable ads. You can always open **Interact** to use the real controls. YouTube can change the Skip button's markup, so failures are reported rather than falsely presented as successful skips.
 
@@ -102,21 +100,17 @@ node --test tests/web/*.test.js
 
 On Windows, use `gradlew.bat build`. Production and source JARs are written to `build/libs/`. The Gradle wrapper pins its distribution checksum. Exact dependency versions and upstream provenance are in [DEPENDENCIES.md](docs/DEPENDENCIES.md).
 
-GitHub Actions builds and runs the Java and JavaScript suites on Linux and Windows. The manual `Build and test` workflow has an optional `macos` input for a macOS compilation/unit-test check. The repository also contains a graphical client smoke test and reproducible software OpenGL cloud-mask checks. See [TESTING.md](docs/TESTING.md) for the exact evidence, commands and limits of those tests.
+The single [**Build, test and release** workflow](.github/workflows/build.yml) runs Java and JavaScript tests and builds remapped JARs on **Linux and Windows**. It also runs the actual Minecraft/MCEF graphical fixture, cloud-shader pixel checks, and release-archive validation. See [TESTING.md](docs/TESTING.md) for commands and test scope.
 
-The release workflow validates the tag against `mod_version`, builds remapped JARs, requires native rendering and the Linux build/tests to pass, checks JAR metadata and archive integrity, generates SHA-256 checksums, and publishes only after those gates succeed. Actual YouTube playback is an optional additional gate for manual releases. Create a version tag only after resolving required-check failures and changing `mod_version`, for example:
+To release, change `mod_version` in `gradle.properties` to a new version and push the commit to `main`. After every required job succeeds, that same workflow creates the matching `v<version>` tag and publishes the tested JAR, source JAR, and `SHA256SUMS.txt`. No separate tag push or release workflow is needed. Ordinary branch pushes and pull requests run the checks without publishing; a main commit with an already published version leaves that release unchanged.
 
-```bash
-git tag v1.0.1
-git push origin v1.0.1
-```
-
-The release workflow can also be manually dispatched for an existing tag. It verifies existing published asset hashes rather than replacing a published version with different files.
+Manual runs offer optional **macos** compilation/tests and a real **youtube** playback check with a selectable **video** ID. Both default to off. Enable **publish** on a manual `main` run to release after its checks, including any optional checks you selected. The release job verifies the tested commit and tag before publication and never replaces a published version with different files.
 
 ## Troubleshooting
 
 - **Nothing happens after Load:** open Interact. A consent screen or browser autoplay restriction may require one click. Initialization progress and player errors are shown in the popup.
 - **Error 101 / 150:** YouTube refused embedded playback. Open Interact to read its message; an embedding restriction or a YouTube verification requirement may apply.
+- **YouTube asks you to confirm you are not a bot:** this is a provider challenge and can also affect hosted CI runners. The optional network playback check reports this as a failure, not a successful playback test.
 - **Error 153:** YouTube did not accept the playback context. SkyTube uses a real loopback HTTP page, iframe origin and referrer; check proxies or privacy filters that strip these headers.
 - **Video is paused while the menu is open:** that menu covers the video. Close it or use Interact.
 - **Clouds look wrong with a shader pack:** test the same scene with vanilla rendering and report the pack, mod list and game log.

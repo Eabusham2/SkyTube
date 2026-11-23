@@ -1,95 +1,77 @@
-# Verification
+# Testing
 
-The release workflow requires a successful Linux production build and unit/integration suites, plus native Minecraft/Chromium rendering. Ordinary CI also builds on Windows; macOS compilation is an optional manual compatibility check. Actual YouTube playback is an optional additional gate because the GitHub-hosted runner received a provider sign-in challenge; the project owner explicitly authorized skipping that external-service check. A skipped check is not recorded as a playback pass. The actual per-commit results and logs are available under [GitHub Actions](https://github.com/Eabusham2/SkyTube/actions).
-
-## Automated suites
-
-| Suite | Scope |
-| --- | --- |
-| Java core | URL/domain/ID/time validation; visibility clipping and occlusion combination; exact threshold, debounce, manual pause, hidden-screen mute; anchor and configuration normalization |
-| Projection properties | 1,000 deterministic clipped-area comparisons and 4,000 perspective silhouette comparisons, including behind-camera/near-plane cases |
-| Configuration files | Disk roundtrip, clamping, missing/corrupt files, preservation of screen-off and invalid-file backup |
-| HTTP bridge | Real loopback HTTP, random capability path, origin/host/content-type checks, bounded input, command acknowledgment and status |
-| OAuth/Data API fixture | Real local callback, PKCE/state, scope, cancellation, authenticated like/dislike/clear, comment channel/video IDs, live chat body and revocation |
-| JavaScript player | Late readiness, pause/resume, mute, playlist selection/navigation/shuffle, provider changes, rate support, rewind and growing-live-duration catch-up |
-| Ad skip fixture | Requires YouTube player origin, an active ad, visible enabled unobstructed Skip control; hidden/disabled/unavailable controls do not trigger a click |
-| OpenGL shader smoke | Links both real shader pairs and reads actual color/depth pixels at 0%, 50% and 100% cloud opacity; validates unchanged pixels outside the mask |
-
-Local verification for 1.0.5 passed **117 Java tests** and **43 Node tests**, with no failures or skipped cases. The newest player regressions cover a delayed acknowledgment of an earlier rewind after Catch-up is re-enabled, a subsequent deliberate iframe scrub, and retries when the player ignores a forward catch-up seek. Existing cases retain coverage of 600 settings updates before the browser's first poll; ordered Live, Catch-up, Shuffle and transport commands; and rapid playlist navigation/provider switching while original queue reports are delayed. Earlier coverage remains for rapid rewinds with stale clocks, account actions during OAuth consent, early sign-out, sign-out during refresh, timestamped cues, iframe scrubs to zero, duplicate playlist occurrences, shuffled provider restoration, delayed selection metadata, unavailable-item recovery, token exchange, durable sign-out, failed vault deletion, command privacy and partial YouTube SDK downloads. The production browser adapter is executed in Node VM tests to check all three provider choices and their actual embed hosts/parameters. None of the account tests signs into a real Google account or posts public messages. All five release-verifier test groups and actionlint checks for all three workflows also passed.
-
-The new regression assertions were first checked against released code. Independent actual-HTTP-to-production-JavaScript replay checked the final command queue and the player together with a local iframe API fixture. Earlier synthetic credential-store probes exercised readable and locked Linux Secret Service, macOS Keychain and Windows DPAPI protocols, including sign-out during an in-progress startup lookup. Those probes validate command/data flow without asserting that a real OS vault or Google grant was exercised.
-
-Run the suites with:
+Use **JDK 21** and **Node.js 22**. From the repository root:
 
 ```bash
 ./gradlew build
 node --test tests/web/*.test.js
+python3 -I .github/scripts/test-verify-playback.py
 ```
 
-The explicit Node path matters: running bare `node --test` after a Gradle build can discover JavaScript from Gradle's generated HTML test report, which is not a Node test.
+On Windows use `gradlew.bat build`. The explicit Node path avoids discovering JavaScript from Gradle's generated HTML reports. Java reports are written to `build/reports/tests/test/`.
 
-## Graphical client test
+## Automated coverage
 
-`src/gametest` is a **separate test mod**. It is not included in the production or source distribution JAR.
+| Suite | Scope |
+| --- | --- |
+| Java core | Source parsing, settings, anchoring, visibility, threshold boundaries, debounce, manual pause and screen power |
+| Projection properties | Deterministic frustum-clipping and perspective-silhouette comparisons, including near-plane and behind-camera cases |
+| Configuration | Disk roundtrip, clamping, missing/corrupt files, invalid-file backup and saved screen-off state |
+| Loopback bridge | Actual HTTP requests, bounded input, Host/Origin checks, command ordering, acknowledgments and current-selection validation |
+| OAuth and Data API fixtures | Local callback, PKCE/state, consent cancellation, rating/comment/chat request payloads, token handling and sign-out |
+| Browser player | Readiness, pause/mute, rewind, rate support, playlists, shuffle, provider changes, delayed metadata and live catch-up |
+| Skip Ad fixture | Visible, enabled and unobstructed Skip controls during an ad; unavailable controls must not be clicked |
+| Playback-report verifier | Complete fresh observations, matching commit/token/video, provider hosts, advancing clocks and transport controls |
 
-Before the test player joins, the integrated server prepares the 49 chunks around its fixed spawn using Minecraft's expiring player-spawn ticket. It processes pending chunk work on the server thread and fails if preparation exceeds 90 seconds or Minecraft reports a chunk-loading error. Fabric then waits for the player to join and the client to render the world.
+The browser tests execute the shipped JavaScript against iframe and DOM fixtures. Account tests use local HTTP endpoints. They do not sign into Google or post public ratings, comments or chat messages.
 
-The normal `runClientGameTest` launches the actual Minecraft 1.21.11 client and creates a singleplayer world. It opens the popup using the registered hotkey, navigates Player/Display/Account and Interact/Back using the actual buttons, checks minimum-size widget bounds, and tests the real command-suggestion provider with both a private draft and an ordinary server command. It initializes the pinned MCEF Modern browser and navigates it to a local magenta/cyan HTML fixture. Actual screenshots must contain both halves under Fancy and Fast cloud modes and neither half when the display is hidden. The release gate always uses the native MCEF path.
+## Native Minecraft and MCEF
 
-The same game test adds near, distant, partial and non-rendered roof fixtures, an invisible barrier roof inside rendered sections, source and shallow flowing lava, transparent water, an entity, camera turns, Follow view locking, and recentering. It compares both GPU readback and the production visibility calculation. A test-only HTTP consumer then reads the actual production loopback commands to check playback/mute at 90% and adjusted thresholds, manual-pause persistence, a stale report followed by a rapid iframe resume, focus changes, covering menus and screen power. Actual cloud-slider clicks just inside the endpoints must save exactly the displayed 0% and 100%. A click on the 90% visibility position is followed by a world scene with exactly 90% sampled visibility, checking both the persisted value and play/unmute behavior. The fixture contains **24 logged playback bridge checkpoints and 21 screenshots**, plus five loading-control cases, world-exit browser cleanup and populated Account-draft resize assertions. The loading cases check native retry feedback and absence of queued actions before readiness, after a load acknowledgment without readiness, and when an earlier ready report predates a new load or provider. An ordered ready-player burst includes Next, Previous, two real J keypresses and the Go live button without an intervening acknowledgment. These transport checks verify what the mod commands; they do not replace an audible-output check.
+The separate `src/gametest` mod launches Minecraft 1.21.11, prepares a singleplayer world and opens the actual controls. It initializes MCEF Modern and loads a local two-color HTML page. Framebuffer assertions cover the sky screen under Fast and Fancy clouds, screen power, centering/follow view, terrain and entity occlusion, lava and water. The fixture also exercises menu navigation, widget bounds, Account draft resizing, command-suggestion privacy and browser cleanup on world exit.
+
+Playback bridge assertions check the exact 90% boundary and adjusted thresholds, manual-pause persistence, focus and covering menus, mute/pause, loading-control feedback and rapid ready-player commands. Actual slider clicks must save the displayed 0%, 90% and 100% values where applicable.
+
+On Linux with Xvfb, GTK, OpenGL and Chromium's platform libraries installed:
 
 ```bash
-# Linux, with Xvfb and the required GTK/OpenGL libraries installed:
 xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew runClientGameTest
 ```
 
-Screenshots, the Minecraft log and any crash report are uploaded by the `Minecraft client smoke test` workflow. These checks detect startup/Mixin errors, missing shaders, invalid GPU calls, absent textures, reversed screen halves and show/hide regressions. They do not prove that a particular YouTube stream is available, that an advertisement is skippable, or that a real account can post.
+Logs and screenshots are under `build/run/clientGameTest/`. CI uploads them with the run, including available failure evidence. The game-test mod is excluded from both distribution JARs.
 
-The development sandbox successfully started Minecraft, created a world and rendered the native menu. Its Unix-domain-socket policy then prevented Chromium's process-singleton startup. A separate **test-only GPU texture fixture** verifies local world rendering without claiming a native browser pass; the full native check runs on GitHub's normal Linux runner. The combined 1.0.5 local texture fixture passed all 24 playback checkpoints and five loading-control cases, produced 21 readable screenshots, and passed both cloud-slider endpoints, the exact 90% visibility scene, Account-draft resize and world-exit cleanup assertions. That fallback is never selected by release CI.
+If native Chromium cannot start in a restricted development environment, `-PsmokeTextureOnly=true` substitutes a test texture. That checks rendering but does not validate MCEF. CI and release gates always use native MCEF.
 
-## Optional real YouTube check
+## Cloud shader pixels
 
-The `Minecraft client smoke test` workflow has a **youtube** input, defaulting to false. A manual release has the same optional input and selects `aqz-KE-bpKQ`; tag-triggered releases skip the external-service check. When explicitly enabled for a release, actual playback and its independent evidence verification must pass before publication. The native Minecraft/Chromium fixture always runs, whether the external check is enabled or skipped. The test opens the selected video through normal YouTube, No-Cookie and the yout-ube destination in actual MCEF. Its **video** input accepts another public video's 11-character ID for manual diagnosis. Each provider must report the expected iframe host, confirmed video ID, `PLAYING` state and advancing playback time. Normal YouTube must also pass native manual pause, a stable paused clock, rewind and resume.
-
-After every required assertion succeeds, the native test writes a completion report containing the sampled observations, checked-out commit, sample ID and a fresh workflow token. A separate runner checks that report using verification code from the invoking workflow revision. It recomputes the host, confirmed selection, clock, pause, rewind and resume checks. A successful Gradle exit without fresh complete evidence cannot satisfy the gate, including when an older tag does not implement the network test.
-
-```bash
-xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew -PsmokeYouTube=true runClientGameTest
-
-# Optional alternate sample:
-xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew -PsmokeYouTube=true -PsmokeYouTubeVideo=aqz-KE-bpKQ runClientGameTest
-```
-
-Each provider has a 90-second wall-clock limit. Once the provider check starts, a failed playback assertion records the last player report and a screenshot before the next provider runs. A native setup failure can stop the workflow earlier. The test does not sign in, post, automatically click verification prompts, or skip ads. YouTube availability, consent, embedding rules and data-center verification may block it. When explicitly enabled, a failure still fails the workflow; the test does not silently turn provider errors into success. A playback clock on a runner with a null audio device does not prove audible output, live DVR/chat behavior, or every YouTube video.
-
-Test-only diagnostics compare direct HTML5 WebM/MP4 sources and a plain YouTube iframe in an independent MCEF browser with the production player. The log includes media readiness, network state, buffered ranges, decoded/dropped frames, actual browser identity and codec support. It also reports bounded, redacted provider error text and counts of offered formats. Native request summaries include response status, network error and completed byte counts for the relevant endpoint classes. Signed media URLs, query strings, request bodies, account cookies and private loopback paths are not logged. These controls diagnose a failed check; they never turn a failed production playback assertion into success.
-
-## Reproducible cloud pixel check
-
-See [RENDER_TESTS.md](RENDER_TESTS.md) for the measured color/depth values and driver details. The standalone script uses a local Minecraft client JAR for Mojang shader includes; the game JAR is not distributed in this repository:
+The standalone Linux EGL test links SkyTube shaders with Minecraft's shader stages and includes, then checks color and depth at 0%, 50% and 100% cloud opacity. Pixels outside the screen must retain vanilla cloud output. It needs Python 3, libEGL, libGL and desktop OpenGL 3.3 or later; Mesa software rendering is supported.
 
 ```bash
 python3 tests/render/cloud_mask_smoke.py --client-jar /path/to/minecraft-1.21.11-client.jar
 ```
 
-## Cross-platform build and release
+The client JAR is an input from the local Minecraft/Loom installation and is not distributed by this project.
 
-`Build and test` runs the Java and JavaScript tests and remaps the production JAR on Ubuntu and Windows. It also calls the native graphical smoke workflow on Linux. Enable the optional `macos` input when manually dispatching it to add a macOS compilation/unit-test job. The release workflow resolves the tag to one immutable commit, requires native rendering for that commit, and then builds the release JARs on Linux. The same JAR is distributed across platforms; release packaging does not repeat the optional macOS check. If the manual release enables real YouTube playback, its fresh completion report must also pass before the build starts. It checks archive integrity and embedded version metadata, creates SHA-256 checksums, and publishes only after those jobs succeed. The remote tag must still resolve to the verified commit immediately before creating a draft, uploading release assets, or publishing it. A moved or deleted tag fails the workflow.
+## Optional YouTube playback check
 
-Compilation on a platform does not imply that its particular GPU, audio device or Google browser session was tested. Native graphical evidence is Linux/Mesa; Windows/macOS native playback, external shader packs and live account actions need their own runtime checks.
+A manual workflow run can enable `youtube` and select an 11-character `video` ID. This opens that public video through YouTube, No-Cookie and the yout-ube destination in actual MCEF. Every provider must report the expected embed host, confirmed video, playing state and advancing time. Normal YouTube must also pass pause, a stable paused clock, rewind and resume.
 
-## Manual acceptance checklist
+```bash
+xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew \
+  -PsmokeYouTube=true -PsmokeYouTubeVideo=aqz-KE-bpKQ runClientGameTest
+```
 
-These checks require an ordinary player installation and real YouTube conditions:
+The test writes a completion report only after the assertions pass. CI independently verifies its observations, checked-out commit, selected video and fresh run token. Missing, stale or incomplete evidence fails the selected check. Provider failures capture the last player report and a screenshot. Diagnostic output excludes tokens, cookies, signed media URLs and private loopback paths.
 
-- Load an embeddable video with sound; move across the 90% threshold and adjust that threshold; verify mute/pause and resume.
-- Manually pause, look away/back, and verify it remains paused. Test rapid pause/resume presses.
-- Recenter, resize and follow view; walk and turn; check terrain/entity occlusion. Test FOV changes and third-person camera.
-- Look through a cloud at 0%, 50% and 100% opacity, verifying outside clouds remain unchanged.
-- Enter a playlist at a nonfirst item; use previous/next and shuffle; test paused navigation and provider switches.
-- On a real live broadcast, inspect chat, rewind, resume and Go live; confirm that intentional DVR rewind is preserved.
-- If an ad offers Skip, exercise the N key and the menu button, and compare with clicking the real player.
-- Complete optional OAuth using your own project/account; verify one deliberate rating, comment and chat message, then Sign out.
-- Hide the screen, leave/rejoin the world and restart the game. Confirm that a saved off setting stays off.
+This external-service check defaults to off because YouTube may challenge hosted runners or restrict embedding. When selected, it is a required gate for that run. Skipping it does not constitute a YouTube playback pass. Tests never sign in, post or automatically handle verification prompts.
 
-Failures caused by embedding, autoplay, restricted content, unsupported speeds, API quotas or upstream provider changes are surfaced to the player. The test suite does not justify a claim of zero bugs or universal YouTube compatibility.
+## One workflow: test, build and release
+
+[Build, test and release](../.github/workflows/build.yml) contains the complete pipeline:
+
+1. Linux and Windows run the Java/JavaScript suites and build remapped JARs. Linux validates the distribution archives and metadata and checks the report verifier and cloud-shader pixels.
+2. The native Minecraft/MCEF job runs the graphical fixture. Optional `youtube` adds the external playback and fresh-report checks. Optional `macos` adds compilation and unit tests.
+3. After all required and selected checks pass, a new `mod_version` on `main` is tagged and released with the tested Linux JARs and SHA-256 checksums. Branch pushes and pull requests test without publishing. Manual publication requires `publish` on `main`.
+
+The release job verifies the tested commit and immutable tag. It never replaces a published version with different assets. See [release instructions](../README.md#build-and-verify) and [workflow runs](https://github.com/Eabusham2/SkyTube/actions/workflows/build.yml).
+
+Native graphical coverage is Linux/Mesa. Compilation on Windows or macOS does not validate those platforms' GPUs, audio devices or credential vaults. The local browser fixture does not establish actual YouTube decoding or audible output. Real served ads, live DVR/chat, Google consent, public account actions and third-party rendering mods require testing in their actual environments.
