@@ -82,6 +82,8 @@ jobs:
     uses: ./.github/workflows/smoke.yml
     with:
       ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      youtube: true
+      video: aqz-KE-bpKQ
 
   publish:
     needs: [build, client-smoke]

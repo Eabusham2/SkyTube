@@ -3,6 +3,8 @@ package dev.eyad.skytube.test;
 import dev.eyad.skytube.client.InteractionScreen;
 import dev.eyad.skytube.client.SkyTubeClient;
 import dev.eyad.skytube.web.WebPlayerServer;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -24,44 +26,64 @@ public final class YouTubeNetworkSmokeTest implements FabricClientGameTest {
         var failures = new ArrayList<String>();
         try (var world = context.worldBuilder().create()) {
             world.getClientWorld().waitForChunksRender();
-            for (String provider : List.of("youtube", "nocookie", "yout-ube")) {
-                context.runOnClient(mc -> {
-                    mod.config().provider = provider;
-                    mod.config().showChat = false;
-                    mod.config().live = false;
-                    mod.config().playbackRate = 1;
-                    mod.config().rewindSeconds = 5;
-                    mod.load("https://www.youtube.com/watch?v=" + VIDEO);
-                    mc.setScreen(new InteractionScreen(mod));
-                });
-                var probe = context.computeOnClient(mc -> new Probe(context, mod, provider));
-                try {
-                    probe.check();
-                    context.takeScreenshot("youtube-" + provider + "-playing");
-                } catch (AssertionError failure) {
-                    var screenshot = context.takeScreenshot("youtube-" + provider + "-unavailable");
-                    var detail = context.computeOnClient(mc -> mod.status() + " · embed host " + probe.embedHost());
-                    String diagnostic = provider + ": " + failure.getMessage() + " · " + detail;
-                    SkyTubeClient.LOGGER.error("{} · inspect {} for player, consent or verification messages", diagnostic, screenshot);
-                    failures.add(diagnostic);
+            var diagnostics = context.computeOnClient(mc -> {
+                try { return new MediaDiagnostics(VIDEO); }
+                catch (IOException error) { throw new UncheckedIOException("Failed to start media diagnostics", error); }
+            });
+            try {
+                diagnostics.baselines(context);
+                for (String provider : List.of("youtube", "nocookie", "yout-ube")) {
+                    diagnostics.select(provider);
+                    checkProvider(context, mod, provider, diagnostics, failures);
                 }
+            } finally {
+                context.runOnClient(mc -> diagnostics.close());
             }
         }
         if (!failures.isEmpty()) throw new AssertionError(String.join("\n", failures));
+    }
+
+    private static void checkProvider(ClientGameTestContext context, SkyTubeClient mod, String provider,
+            MediaDiagnostics diagnostics, List<String> failures) {
+        context.runOnClient(mc -> {
+            mod.config().provider = provider;
+            mod.config().showChat = false;
+            mod.config().live = false;
+            mod.config().playbackRate = 1;
+            mod.config().rewindSeconds = 5;
+            mod.load("https://www.youtube.com/watch?v=" + VIDEO);
+            mc.setScreen(new InteractionScreen(mod));
+        });
+        var probe = context.computeOnClient(mc -> new Probe(context, mod, provider, diagnostics));
+        try {
+            probe.check();
+            context.takeScreenshot("youtube-" + provider + "-playing");
+        } catch (AssertionError failure) {
+            var screenshot = context.takeScreenshot("youtube-" + provider + "-unavailable");
+            var detail = context.computeOnClient(mc -> mod.status() + " · embed host " + probe.embedHost());
+            String diagnostic = provider + ": " + failure.getMessage() + " · " + detail;
+            SkyTubeClient.LOGGER.error("{} · inspect {} for player, consent or verification messages", diagnostic, screenshot);
+            failures.add(diagnostic);
+        } finally {
+            diagnostics.summary(provider);
+        }
     }
 
     private static final class Probe {
         final ClientGameTestContext context;
         final SkyTubeClient mod;
         final String provider;
+        final MediaDiagnostics diagnostics;
         final WebPlayerServer bridge;
         final long selection;
         final long deadline = System.nanoTime() + PROVIDER_TIMEOUT;
+        long nextSnapshot;
 
-        Probe(ClientGameTestContext context, SkyTubeClient mod, String provider) {
+        Probe(ClientGameTestContext context, SkyTubeClient mod, String provider, MediaDiagnostics diagnostics) {
             this.context = context;
             this.mod = mod;
             this.provider = provider;
+            this.diagnostics = diagnostics;
             try {
                 var serverField = SkyTubeClient.class.getDeclaredField("server");
                 var selectionField = SkyTubeClient.class.getDeclaredField("selectionCommand");
@@ -99,6 +121,14 @@ public final class YouTubeNetworkSmokeTest implements FabricClientGameTest {
 
         private WebPlayerServer.Status await(String stage, Predicate<WebPlayerServer.Status> condition) {
             while (System.nanoTime() < deadline) {
+                if (System.nanoTime() >= nextSnapshot) {
+                    context.runOnClient(mc -> {
+                        if (mod.surface() != null && mod.surface().browser() != null) {
+                            diagnostics.inspect(provider, mod.surface().browser().getCefBrowser());
+                        }
+                    });
+                    nextSnapshot = System.nanoTime() + Duration.ofSeconds(8).toNanos();
+                }
                 var s = bridge.status();
                 if (s.appliedCommand() >= selection && s.ready() && VIDEO.equals(s.videoId()) && VIDEO.equals(s.confirmedTargetVideoId()) &&
                         condition.test(s)) {

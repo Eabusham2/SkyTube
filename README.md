@@ -6,7 +6,7 @@ Paste a video, live stream or playlist, center its screen where you are looking,
 
 [Download releases](https://github.com/Eabusham2/SkyTube/releases) · [Report an issue](https://github.com/Eabusham2/SkyTube/issues) · [Feature checklist](docs/FEATURES.md) · [Account setup](docs/ACCOUNT_SETUP.md)
 
-**Verification status for 1.0.1:** Java/JavaScript suites, three-platform builds and native Linux Minecraft/Chromium rendering passed. Actual YouTube playback did **not** pass the two external sample checks on the review runner: one video was unavailable, and another remained buffering at time zero in all three provider settings. Their cause was not established, so real playback, audible output and real-stream/account features are not certified by these results. See the [recorded requirement audit](docs/AUDIT_1.0.1.md#recorded-external-playback-results) before treating the feature list as end-to-end verification.
+**1.0.1 is unreleased.** Publication is blocked until the failed real-playback checks are resolved. Java/JavaScript suites, three-platform builds and native Linux Minecraft/Chromium rendering passed, but the two external sample checks did not: one video was unavailable, and another remained buffering at time zero in all three provider settings. See the [recorded requirement audit](docs/AUDIT_1.0.1.md#recorded-external-playback-results). Passing fixture tests does not satisfy the release gate; real playback must pass too.
 
 ## Install
 
@@ -14,7 +14,7 @@ Paste a video, live stream or playlist, center its screen where you are looking,
 2. Add these separate dependencies to that instance's `mods` folder:
    - [Fabric API for 1.21.11](https://modrinth.com/mod/fabric-api/versions?g=1.21.11), **0.141.6+1.21.11 or newer**.
    - [MCEF Modern 0.3.3+mc1.21.11.jcef146.0.10](https://modrinth.com/mod/mcef-modern/version/NfheQM6w). Use **MCEF Modern**, not the legacy MCEF mod.
-3. Download the normal `skytube-fabric-1.21.11-1.0.1.jar` from Releases and put it in the same `mods` folder. The `-sources.jar` is for developers.
+3. After 1.0.1 passes the real-playback release gate and is published, download its normal `skytube-fabric-1.21.11-1.0.1.jar` and put it in the same `mods` folder. The `-sources.jar` is for developers. Version 1.0.1 is currently withheld while its playback failures are investigated.
 4. Start the game and enter a world. Press **Y**.
 
 The first video initializes MCEF asynchronously and may download its Chromium native bundle. SkyTube displays initialization progress. The game and the browser need internet access. This is a client mod: a server does not need to install it, and other players do not see your screen or hear its audio.
