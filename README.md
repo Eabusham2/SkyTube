@@ -126,3 +126,12 @@ Manual runs offer optional **macos** compilation/tests and a real **youtube** pl
 SkyTube is not affiliated with Mojang, Microsoft, Google or YouTube. Its own code is MIT licensed. MCEF Modern and Chromium remain separate dependencies under their respective licenses.
 
 The pinned MCEF release starts Chromium with web security disabled globally. SkyTube keeps OAuth credentials and account actions outside that browser; see [the browser trust boundary](docs/SECURITY.md) before using it with other browser mods.
+
+## Search keywords (ignore)
+
+`skytube`, `minecraft`, `minecraft-java`, `minecraft-1-21-11`, `fabric`, `fabric-mod`,
+`client-side`, `youtube`, `video-player`, `sky-screen`, `live-stream-playback`, `playlists`,
+`live-chat`, `video-controls`, `visibility-pause`, `position-lock`, `cloud-opacity`, `playback-speed`,
+`rewind`, `volume-control`, `mcef-modern`, `chromium`, `browser-player`, `youtube-iframe-api`,
+`youtube-data-api`, `oauth`, `desktop-oauth`, `loopback-http`, `java`, `java-21`,
+`javascript`, `gradle`, `fabric-api`, `captions`, `configurable-hotkeys`, `client-rendering`
