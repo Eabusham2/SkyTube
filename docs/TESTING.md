@@ -15,7 +15,7 @@ The release workflow requires a successful production build, unit/integration su
 | Ad skip fixture | Requires YouTube player origin, an active ad, visible enabled unobstructed Skip control; hidden/disabled/unavailable controls do not trigger a click |
 | OpenGL shader smoke | Links both real shader pairs and reads actual color/depth pixels at 0%, 50% and 100% cloud opacity; validates unchanged pixels outside the mask |
 
-Local verification during development passed **97 Java tests** (93 core/configuration and four web/account integration tests) and **11 Node tests**. Counts may increase as regressions are added. These numbers refer to automated cases; none of the account tests signs into a real Google account or posts public messages.
+Local verification during development passed **97 Java tests** (93 core/configuration and four web/account integration tests) and **13 Node tests**, including delayed-event regressions for both native manual pause and rapid resume. Counts may increase as regressions are added. These numbers refer to automated cases; none of the account tests signs into a real Google account or posts public messages.
 
 Run the suites with:
 

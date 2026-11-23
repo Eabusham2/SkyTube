@@ -1,6 +1,13 @@
 name: Minecraft client smoke test
 
 on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch or tag to test
+        default: main
+        required: true
+        type: string
   workflow_call:
     inputs:
       ref:

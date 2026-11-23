@@ -6,7 +6,7 @@ const {SkyTubePlayer} = require("../../src/main/resources/assets/skytube/web/pla
 const A = "M7lc1UVf-VE", B = "abcdefghijk";
 function fixture() {
     const calls = [], events = [], chat = [], created = [];
-    let time = 1000, position = 100, duration = 300, rate = 1, index = 0, list = [];
+    let time = 1000, position = 100, duration = 300, rate = 1, index = 0, list = [], focused = false;
     const player = {
         getVideoUrl: () => "https://www.youtube.com/watch?v=" + (list[index] || A),
         getAvailablePlaybackRates: () => [0.5, 1, 1.25, 1.5, 2],
@@ -30,6 +30,7 @@ function fixture() {
     };
     const controller = new SkyTubePlayer({
         now: () => time,
+        playerFocused: () => focused,
         destroy() {},
         create(source, privacy, handlers) { created.push({source, privacy}); events.push(handlers); },
         showChat(enabled, id) { chat.push([enabled, id]); }
@@ -40,6 +41,7 @@ function fixture() {
         setList(ids, i) { list = ids; index = i; },
         setDuration(value) { duration = value; },
         setPosition(value) { position = value; },
+        focus(value) { focused = value; },
         advance(ms) { time += ms; controller.tick(); },
         command: (...args) => controller.command(...args)};
 }
@@ -56,7 +58,7 @@ test("default host is privacy-enhanced; preferences apply after player becomes r
 
 test("provider switch preserves selection, position and manually paused state", () => {
     const f = fixture();
-    f.open(); f.state(1); f.state(2);
+    f.open(); f.state(1); f.focus(true); f.state(2);
     f.command("provider", "youtube");
     assert.deepEqual(f.created.at(-1), {privacy: false, source: {videoId: A, startSeconds: 100, index: undefined}});
     f.events.at(-1).ready(f.player);
@@ -72,7 +74,7 @@ test("visibility pause is distinct from manual iframe pause and releasing manual
     const f = fixture();
     f.open(); f.state(1); f.command("pause"); f.state(2);
     assert.equal(f.controller.status().userPaused, false);
-    f.command("play"); f.state(1); f.state(2);
+    f.command("play"); f.state(1); f.focus(true); f.state(2);
     assert.equal(f.controller.status().userPaused, true);
     const plays = f.calls.filter(c => c[0] === "play").length;
     f.command("play"); f.command("manualPause", false);
@@ -150,4 +152,33 @@ test("YouTube's own DVR scrubber suspends catch-up even when unrelated settings 
     assert.equal(f.calls.filter(c => c[0] === "seek").length, 1);
     f.command("liveEdge");
     assert.deepEqual(f.calls.at(-1), ["seek", 335]);
+});
+
+test("a late PLAYING event cannot cancel manual pause before acknowledgement or while the iframe has no focus", () => {
+    const f = fixture();
+    f.open({videoId: A, autoplay: false});
+    f.command("play");
+    f.command("manualPause", true);
+    f.focus(true); f.state(1);
+    assert.equal(f.controller.status().userPaused, true, "pending pause wins over the earlier play request");
+    assert.deepEqual(f.calls.at(-1), ["pause"]);
+    f.state(2); f.focus(false); f.state(1);
+    assert.equal(f.controller.status().userPaused, true, "background playback cannot clear the manual latch");
+    f.state(2);
+    f.command("pause");  // a duplicate game gate command after the player is already paused
+    f.focus(true); f.state(1);
+    assert.equal(f.controller.status().userPaused, false, "a subsequent Play from the focused iframe resumes");
+});
+
+test("a late PAUSED event from an earlier pause cannot undo native resume in the background", () => {
+    const f = fixture();
+    f.open(); f.state(1);
+    f.command("manualPause", true);
+    f.command("manualPause", false);
+    f.command("play");
+    f.focus(false); f.state(2);
+    assert.equal(f.controller.status().userPaused, false, "native resume wins over the earlier pause");
+    assert.deepEqual(f.calls.slice(-2), [["play"], ["play"]], "resume is reissued once after the late pause");
+    f.state(1); f.focus(true); f.state(2);
+    assert.equal(f.controller.status().userPaused, true, "a later click on the focused player still pauses");
 });

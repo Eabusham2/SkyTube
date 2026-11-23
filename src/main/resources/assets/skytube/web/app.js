@@ -38,6 +38,7 @@ const errors = {
 
 const adapter = {
     now: () => performance.now(),
+    playerFocused: () => document.hasFocus() && document.activeElement === video.querySelector("iframe"),
     destroy() {
         ++generation;
         if (active) active.destroy();

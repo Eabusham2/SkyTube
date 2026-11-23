@@ -12,6 +12,7 @@ class SkyTubePlayer {
         this.userPaused = false;
         this.desiredPlaying = false;
         this.commandedPause = false;
+        this.supersededPauseUntil = null;
         this.rate = 1;
         this.volume = 100;
         this.muted = false;
@@ -49,6 +50,7 @@ class SkyTubePlayer {
             case "play":
                 if (this.userPaused) break;
                 this.desiredPlaying = true;
+                if (this.commandedPause) this.supersededPauseUntil = this.adapter.now() + 3000;
                 this.commandedPause = false;
                 if (p) p.playVideo();
                 break;
@@ -57,8 +59,10 @@ class SkyTubePlayer {
                 if (this.userPaused) this.command("pause");
                 break;
             case "pause":
+                this.supersededPauseUntil = null;
+                // Repeated pauses on an already-paused player produce no new acknowledgement.
+                if (p && (this.desiredPlaying || this.state === 1 || this.state === 3)) this.commandedPause = true;
                 this.desiredPlaying = false;
-                this.commandedPause = true;
                 if (p) p.pauseVideo();
                 break;
             case "toggle":
@@ -177,6 +181,7 @@ class SkyTubePlayer {
         this.ready = false;
         this.state = -1;
         this.commandedPause = false;
+        this.supersededPauseUntil = null;
         this.selected = this.validVideo(source.videoId) ? source.videoId : "";
         this.shufflePending = true;
         this.originalOrder = null;
@@ -266,11 +271,25 @@ class SkyTubePlayer {
         const previous = this.state;
         this.state = state;
         if (state === 1) {
+            // A queued play can report PLAYING after Minecraft has already requested a manual pause.
+            // Once paused, only the actual focused iframe (or a native resume command) may resume it.
+            if (this.userPaused && (this.commandedPause || !this.adapter.playerFocused())) {
+                this.command("pause");
+                return;
+            }
             this.userPaused = this.commandedPause = false;
             this.desiredPlaying = true;
             this.message = "";
         } else if (state === 2) {
-            if (!this.commandedPause && (previous === 1 || previous === 3)) this.userPaused = true;
+            const focused = this.adapter.playerFocused();
+            const latePause = this.supersededPauseUntil !== null && this.adapter.now() <= this.supersededPauseUntil;
+            this.supersededPauseUntil = null;
+            // Acknowledge an older pause once if it arrived after a newer native Play.
+            if (latePause && this.desiredPlaying && !this.userPaused && !focused) {
+                this.player?.playVideo();
+                return;
+            }
+            if (!this.commandedPause && focused && (previous === 1 || previous === 3)) this.userPaused = true;
             this.commandedPause = false;
             this.desiredPlaying = false;
         } else if (state === 0 && !this.source?.playlistId) {
