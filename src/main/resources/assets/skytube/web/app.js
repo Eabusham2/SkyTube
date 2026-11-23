@@ -43,11 +43,11 @@ function youtubeApi() {
 }
 
 const errors = {
-    2: "YouTube rejected the video or playlist ID.",
-    5: "Chromium could not play this media format.",
-    100: "This video is private, removed, or unavailable.",
-    101: "The owner disabled embedded playback.",
-    150: "The owner disabled embedded playback.",
+    2: "YouTube rejected the video or playlist ID (error 2).",
+    5: "YouTube's HTML5 player could not play this video (error 5).",
+    100: "This video is private, removed, or unavailable (error 100).",
+    101: "YouTube refused embedded playback for this video (error 101).",
+    150: "YouTube refused embedded playback for this video (error 150).",
     153: "YouTube could not identify the embedded player (error 153)."
 };
 

@@ -1,6 +1,6 @@
 # Verification
 
-The release workflow requires a successful production build, unit/integration suites, and the real native Chromium client smoke test. The actual per-commit results and logs are available under [GitHub Actions](https://github.com/Eabusham2/SkyTube/actions).
+The release workflow requires successful production builds and unit/integration suites on Linux, Windows and macOS, plus native Minecraft/Chromium rendering. Actual YouTube playback is an optional additional gate because the GitHub-hosted runner received a provider sign-in challenge; the project owner explicitly authorized skipping that external-service check. A skipped check is not recorded as a playback pass. The actual per-commit results and logs are available under [GitHub Actions](https://github.com/Eabusham2/SkyTube/actions).
 
 ## Automated suites
 
@@ -45,7 +45,9 @@ The development sandbox successfully started Minecraft, created a world and rend
 
 ## Optional real YouTube check
 
-The `Minecraft client smoke test` workflow has an opt-in **youtube** input, defaulting to false. With it enabled, a separate test opens the official public IFrame API example video through normal YouTube, No-Cookie and the yout-ube destination in actual MCEF. Its **video** input accepts another public video's 11-character ID, allowing a sample-specific availability failure to be checked with a different video. Each provider must report the expected iframe host, confirmed video ID, `PLAYING` state and advancing playback time. Normal YouTube must also pass native manual pause, a stable paused clock, rewind and resume.
+The `Minecraft client smoke test` workflow has a **youtube** input, defaulting to false. A manual release has the same optional input and selects `aqz-KE-bpKQ`; tag-triggered releases skip the external-service check. When explicitly enabled for a release, actual playback and its independent evidence verification must pass before publication. The native Minecraft/Chromium fixture always runs, whether the external check is enabled or skipped. The test opens the selected video through normal YouTube, No-Cookie and the yout-ube destination in actual MCEF. Its **video** input accepts another public video's 11-character ID for manual diagnosis. Each provider must report the expected iframe host, confirmed video ID, `PLAYING` state and advancing playback time. Normal YouTube must also pass native manual pause, a stable paused clock, rewind and resume.
+
+After every required assertion succeeds, the native test writes a completion report containing the sampled observations, checked-out commit, sample ID and a fresh workflow token. A separate runner checks that report using verification code from the invoking workflow revision. It recomputes the host, confirmed selection, clock, pause, rewind and resume checks. A successful Gradle exit without fresh complete evidence cannot satisfy the gate, including when an older tag does not implement the network test.
 
 ```bash
 xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew -PsmokeYouTube=true runClientGameTest
@@ -54,7 +56,9 @@ xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew -PsmokeYouTube=true runClientGa
 xvfb-run -a -s '-screen 0 1280x720x24' ./gradlew -PsmokeYouTube=true -PsmokeYouTubeVideo=aqz-KE-bpKQ runClientGameTest
 ```
 
-Each provider has a 90-second wall-clock limit. Once the provider check starts, a failed playback assertion records the last player report and a screenshot before the next provider runs. A native setup failure can stop the workflow earlier. The test does not sign in, post, automatically click verification prompts, or skip ads. YouTube availability, consent, embedding rules and data-center verification may block it; inspect the actual workflow result before claiming live-provider playback passed. This external-service check is separate from the deterministic release gate. A playback clock on a runner with a null audio device does not prove audible output, live DVR/chat behavior, or every YouTube video.
+Each provider has a 90-second wall-clock limit. Once the provider check starts, a failed playback assertion records the last player report and a screenshot before the next provider runs. A native setup failure can stop the workflow earlier. The test does not sign in, post, automatically click verification prompts, or skip ads. YouTube availability, consent, embedding rules and data-center verification may block it. When explicitly enabled, a failure still fails the workflow; the test does not silently turn provider errors into success. A playback clock on a runner with a null audio device does not prove audible output, live DVR/chat behavior, or every YouTube video.
+
+Test-only diagnostics compare direct HTML5 WebM/MP4 sources and a plain YouTube iframe in an independent MCEF browser with the production player. The log includes media readiness, network state, buffered ranges, decoded/dropped frames, actual browser identity and codec support. It also reports bounded, redacted provider error text and counts of offered formats. Native request summaries include response status, network error and completed byte counts for the relevant endpoint classes. Signed media URLs, query strings, request bodies, account cookies and private loopback paths are not logged. These controls diagnose a failed check; they never turn a failed production playback assertion into success.
 
 ## Reproducible cloud pixel check
 
@@ -66,7 +70,7 @@ python3 tests/render/cloud_mask_smoke.py --client-jar /path/to/minecraft-1.21.11
 
 ## Cross-platform build and release
 
-`Build and test` runs the Java and JavaScript tests and remaps the production JAR on Ubuntu, Windows and macOS. It also calls the native graphical smoke workflow on Linux. The release workflow repeats the required build and graphical gate for the tagged commit, checks archive integrity and embedded version metadata, creates SHA-256 checksums, and publishes only after those jobs succeed.
+`Build and test` runs the Java and JavaScript tests and remaps the production JAR on Ubuntu, Windows and macOS. It also calls the native graphical smoke workflow on Linux. The release workflow resolves the tag to one immutable commit, requires native rendering for that commit, and then runs the three-platform build. If the manual release enables real YouTube playback, its fresh completion report must also pass before the build starts. It checks archive integrity and embedded version metadata, creates SHA-256 checksums, and publishes only after those jobs succeed. The remote tag must still resolve to the verified commit immediately before creating a draft, uploading release assets, or publishing it. A moved or deleted tag fails the workflow.
 
 Compilation on a platform does not imply that its particular GPU, audio device or Google browser session was tested. Native graphical evidence is Linux/Mesa; Windows/macOS native playback, external shader packs and live account actions need their own runtime checks.
 

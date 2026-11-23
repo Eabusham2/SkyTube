@@ -31,7 +31,7 @@ This checklist distinguishes implemented behavior from what depends on YouTube, 
 | Shuffle on/off | Popup toggle + official playlist API | Stable state across repeated preferences and restore original order |
 | Toggle screen | Popup + V | Hidden screen is not rendered and its transport is inhibited; persisted setting preserved |
 | GitHub repository | README, topics, description, license and source | Published at [Eabusham2/SkyTube](https://github.com/Eabusham2/SkyTube) |
-| Release workflow | Tag-validated build, test, client smoke, checksums and release assets | No release is published before the configured gates succeed |
+| Release workflow | One immutable tagged commit, three-platform tests/builds, native rendering, checksums and release assets | Required-check failures block publication; live YouTube playback is an explicitly optional additional check |
 
 ## Limits requiring real user conditions
 

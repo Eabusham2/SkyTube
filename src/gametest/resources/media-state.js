@@ -25,6 +25,35 @@
     const ua = navigator.userAgentData;
     if (ua) report.uaData = {platform: clean(ua.platform), mobile: ua.mobile,
         brands: ua.brands.slice(0, 8).map(b => [clean(b.brand), clean(b.version)])};
+    if (["www.youtube.com", "www.youtube-nocookie.com"].includes(location.hostname) && location.pathname.startsWith("/embed/")) {
+        // Keep diagnostic output to provider messages and counts. A player response can also contain signed media URLs.
+        const notice = value => typeof value === "string" ? clean(value.slice(0, 1200)
+            .replace(/\b(?:playback|session|visitor|video)\s+id\s*[:=]\s*[^\s)]+/gi, "[redacted ID]")
+            .replace(/\b[\w.+%-]+@[\w.-]+\.[a-z]{2,}\b/gi, "[redacted email]")
+            .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[redacted IP]")
+            .replace(/\b(?:[a-f\d]{1,4}:){3,}[a-f\d:]+\b/gi, "[redacted IP]")
+            .replace(/\b(?:[a-z\d-]+\.)+[a-z]{2,}(?:[/:][^\s)]*)?/gi, "[redacted host]")
+            .replace(/\b[A-Za-z0-9_-]{24,}\b/g, "[redacted ID]")
+            .replace(/\s+/g, " ").trim()) : "";
+        const player = document.getElementById("movie_player");
+        let response = window.ytInitialPlayerResponse;
+        try { response = player?.getPlayerResponse?.() || response; } catch { /* Metadata is optional during startup. */ }
+        if (!response || typeof response !== "object" || Array.isArray(response)) response = null;
+        const status = response?.playabilityStatus;
+        const streaming = response?.streamingData;
+        const reason = status?.errorScreen?.playerErrorMessageRenderer?.reason;
+        const reasonText = Array.isArray(reason?.runs)
+            ? reason.runs.slice(0, 8).map(r => typeof r?.text === "string" ? r.text.slice(0, 240) : "").join("") : "";
+        const errorNotice = Array.from(document.querySelectorAll(".ytp-error-content-wrap, .ytp-error-content, .ytp-error, .ytp-unavailable-message"))
+            .find(el => el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true}) && el.getClientRects().length > 0);
+        report.playability = {
+            status: typeof status?.status === "string" && /^[A-Z_]{1,48}$/.test(status.status) ? status.status : null,
+            reason: notice(status?.reason || reason?.simpleText || reasonText),
+            visibleError: notice(errorNotice?.innerText),
+            formats: response ? (Array.isArray(streaming?.formats) ? streaming.formats.length : 0) : null,
+            adaptiveFormats: response ? (Array.isArray(streaming?.adaptiveFormats) ? streaming.adaptiveFormats.length : 0) : null
+        };
+    }
     try {
         if (typeof controller !== "undefined" && typeof controller.desiredPlaying === "boolean") {
             report.controller = {desiredPlaying: controller.desiredPlaying, userPaused: controller.userPaused,

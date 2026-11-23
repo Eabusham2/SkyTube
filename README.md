@@ -6,7 +6,7 @@ Paste a video, live stream or playlist, center its screen where you are looking,
 
 [Download releases](https://github.com/Eabusham2/SkyTube/releases) · [Report an issue](https://github.com/Eabusham2/SkyTube/issues) · [Feature checklist](docs/FEATURES.md) · [Account setup](docs/ACCOUNT_SETUP.md)
 
-**1.0.1 is unreleased.** Publication is blocked until the failed real-playback checks are resolved. Java/JavaScript suites, three-platform builds and native Linux Minecraft/Chromium rendering passed, but the two external sample checks did not: one video was unavailable, and another remained buffering at time zero in all three provider settings. See the [recorded requirement audit](docs/AUDIT_1.0.1.md#recorded-external-playback-results). Passing fixture tests does not satisfy the release gate; real playback must pass too.
+**External playback check:** the GitHub-hosted runner receives YouTube's “Sign in to confirm you're not a bot” screen in all three provider settings. Ordinary WebM clips play in the same browser. At the project owner's request, this service-dependent test is optional for releases; required Java/JavaScript tests, three-platform builds and native Minecraft/Chromium checks remain enabled. Actual YouTube playback was not verified on that runner. See the [recorded requirement audit](docs/AUDIT_1.0.1.md#recorded-external-playback-results).
 
 ## Install
 
@@ -14,7 +14,7 @@ Paste a video, live stream or playlist, center its screen where you are looking,
 2. Add these separate dependencies to that instance's `mods` folder:
    - [Fabric API for 1.21.11](https://modrinth.com/mod/fabric-api/versions?g=1.21.11), **0.141.6+1.21.11 or newer**.
    - [MCEF Modern 0.3.3+mc1.21.11.jcef146.0.10](https://modrinth.com/mod/mcef-modern/version/NfheQM6w). Use **MCEF Modern**, not the legacy MCEF mod.
-3. After 1.0.1 passes the real-playback release gate and is published, download its normal `skytube-fabric-1.21.11-1.0.1.jar` and put it in the same `mods` folder. The `-sources.jar` is for developers. Version 1.0.1 is currently withheld while its playback failures are investigated.
+3. After 1.0.1 passes its required checks and is published, download its normal `skytube-fabric-1.21.11-1.0.1.jar` and put it in the same `mods` folder. The `-sources.jar` is for developers. The release workflow publishes only after the required checks pass.
 4. Start the game and enter a world. Press **Y**.
 
 The first video initializes MCEF asynchronously and may download its Chromium native bundle. SkyTube displays initialization progress. The game and the browser need internet access. This is a client mod: a server does not need to install it, and other players do not see your screen or hear its audio.
@@ -102,7 +102,7 @@ On Windows, use `gradlew.bat build`. Production and source JARs are written to `
 
 GitHub Actions builds and runs the Java and JavaScript suites on Linux, Windows and macOS. The repository also contains a graphical client smoke test and reproducible software OpenGL cloud-mask checks. See [TESTING.md](docs/TESTING.md) for the exact evidence, commands and limits of those tests.
 
-The release workflow validates the tag against `mod_version`, builds remapped JARs, checks their metadata and archive integrity, generates SHA-256 checksums, and publishes release assets. Create a version tag after changing `mod_version`, for example:
+The release workflow validates the tag against `mod_version`, builds remapped JARs, requires native rendering and the three-platform test/build matrix to pass, checks JAR metadata and archive integrity, generates SHA-256 checksums, and publishes only after those gates succeed. Actual YouTube playback is an optional additional gate for manual releases. Create a version tag only after resolving required-check failures and changing `mod_version`, for example:
 
 ```bash
 git tag v1.0.1

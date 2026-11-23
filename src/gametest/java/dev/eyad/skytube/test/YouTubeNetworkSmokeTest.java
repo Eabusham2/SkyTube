@@ -1,14 +1,21 @@
 package dev.eyad.skytube.test;
 
+import com.google.gson.Gson;
 import dev.eyad.skytube.client.InteractionScreen;
 import dev.eyad.skytube.client.SkyTubeClient;
 import dev.eyad.skytube.web.WebPlayerServer;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
@@ -24,6 +31,10 @@ public final class YouTubeNetworkSmokeTest implements FabricClientGameTest {
         if (!VIDEO.matches("[A-Za-z0-9_-]{11}")) throw new IllegalArgumentException("Expected an 11-character YouTube video ID.");
         var mod = SkyTubeClient.get();
         var failures = new ArrayList<String>();
+        var providers = new LinkedHashMap<String, ProviderEvidence>();
+        Path report = context.computeOnClient(mc -> mc.gameDirectory.toPath().resolve("youtube-playback-evidence.json"));
+        try { Files.deleteIfExists(report); }
+        catch (IOException error) { throw new UncheckedIOException("Could not clear earlier playback evidence", error); }
         try (var world = SkyTubeSmokeTest.createWorld(context)) {
             world.getClientWorld().waitForChunksRender();
             var diagnostics = context.computeOnClient(mc -> {
@@ -34,17 +45,32 @@ public final class YouTubeNetworkSmokeTest implements FabricClientGameTest {
                 diagnostics.baselines(context);
                 for (String provider : List.of("youtube", "nocookie", "yout-ube")) {
                     diagnostics.select(provider);
-                    checkProvider(context, mod, provider, diagnostics, failures);
+                    checkProvider(context, mod, provider, diagnostics, providers, failures);
                 }
             } finally {
                 context.runOnClient(mc -> diagnostics.close());
             }
         }
         if (!failures.isEmpty()) throw new AssertionError(String.join("\n", failures));
+        var evidence = new Completion(1, System.getenv().getOrDefault("SKYTUBE_PLAYBACK_RUN", UUID.randomUUID().toString()),
+                System.getenv().getOrDefault("SKYTUBE_PLAYBACK_COMMIT", "local"), VIDEO, providers);
+        try { Files.writeString(report, new Gson().toJson(evidence), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE); }
+        catch (IOException error) { throw new UncheckedIOException("Could not write verified playback evidence", error); }
+    }
+
+    private record Completion(int schema, String runToken, String commit, String video, Map<String, ProviderEvidence> providers) {}
+    private record ProviderEvidence(String host, long selectionCommand, Observation playing, Observation advancing, Transport transport) {}
+    private record Transport(Observation beforePause, Observation paused, Observation held, Observation rewound, Observation resumed) {}
+    private record Observation(boolean ready, String videoId, String confirmedTargetVideoId, long appliedCommand, int state,
+                               boolean userPaused, double currentTime, long receivedNanos) {
+        static Observation of(WebPlayerServer.Status status) {
+            return new Observation(status.ready(), status.videoId(), status.confirmedTargetVideoId(), status.appliedCommand(),
+                    status.state(), status.userPaused(), status.currentTime(), status.receivedNanos());
+        }
     }
 
     private static void checkProvider(ClientGameTestContext context, SkyTubeClient mod, String provider,
-            MediaDiagnostics diagnostics, List<String> failures) {
+            MediaDiagnostics diagnostics, Map<String, ProviderEvidence> providers, List<String> failures) {
         context.runOnClient(mc -> {
             mod.config().provider = provider;
             mod.config().showChat = false;
@@ -56,8 +82,9 @@ public final class YouTubeNetworkSmokeTest implements FabricClientGameTest {
         });
         var probe = context.computeOnClient(mc -> new Probe(context, mod, provider, diagnostics));
         try {
-            probe.check();
+            var evidence = probe.check();
             context.takeScreenshot("youtube-" + provider + "-playing");
+            providers.put(provider, evidence);
         } catch (AssertionError failure) {
             var screenshot = context.takeScreenshot("youtube-" + provider + "-unavailable");
             var detail = context.computeOnClient(mc -> mod.status() + " · embed host " + probe.embedHost());
@@ -96,27 +123,32 @@ public final class YouTubeNetworkSmokeTest implements FabricClientGameTest {
             }
         }
 
-        void check() {
+        ProviderEvidence check() {
             if (bridge == null) throw new AssertionError("The local player bridge failed to start");
             String expectedHost = provider.equals("youtube") ? "www.youtube.com" : "www.youtube-nocookie.com";
             var playing = await("playing the sample", s -> s.state() == 1);
-            await("advancing playback", s -> s.state() == 1 && s.currentTime() >= playing.currentTime() + 1.5);
+            var advancing = await("advancing playback", s -> s.state() == 1 && s.currentTime() >= playing.currentTime() + 1.5);
             String host = context.computeOnClient(mc -> embedHost());
             if (!host.equals(expectedHost)) throw new AssertionError("Expected embed host " + expectedHost + ", observed " + host);
             SkyTubeClient.LOGGER.info("External YouTube {} played {} in the {} iframe", provider, VIDEO, host);
-            if (!provider.equals("youtube")) return;
+            Transport transport = provider.equals("youtube") ? checkTransport() : null;
+            return new ProviderEvidence(host, selection, Observation.of(playing), Observation.of(advancing), transport);
+        }
 
-            await("enough playback to rewind", s -> s.state() == 1 && s.currentTime() >= 4);
+        private Transport checkTransport() {
+            var beforePause = await("enough playback to rewind", s -> s.state() == 1 && s.currentTime() >= 4);
             context.runOnClient(mc -> mod.toggleManualPause());
-            var paused = await("native pause", s -> s.userPaused() && s.state() == 2);
-            await("paused clock", s -> s.userPaused() && s.state() == 2 &&
+            var paused = await("native pause", s -> s.userPaused() && s.state() == 2 && s.currentTime() >= 4);
+            var held = await("paused clock", s -> s.userPaused() && s.state() == 2 &&
                     s.receivedNanos() - paused.receivedNanos() >= Duration.ofMillis(700).toNanos() &&
                     Math.abs(s.currentTime() - paused.currentTime()) < 0.5);
             context.runOnClient(mc -> mod.rewind());
             var rewind = await("native rewind", s -> s.userPaused() && s.state() == 2 &&
                     Math.abs(s.currentTime() - Math.max(0, paused.currentTime() - 5)) < 1);
             context.runOnClient(mc -> mod.toggleManualPause());
-            await("native resume", s -> !s.userPaused() && s.state() == 1 && s.currentTime() >= rewind.currentTime() + 1.5);
+            var resumed = await("native resume", s -> !s.userPaused() && s.state() == 1 && s.currentTime() >= rewind.currentTime() + 1.5);
+            return new Transport(Observation.of(beforePause), Observation.of(paused), Observation.of(held),
+                    Observation.of(rewind), Observation.of(resumed));
         }
 
         private WebPlayerServer.Status await(String stage, Predicate<WebPlayerServer.Status> condition) {
