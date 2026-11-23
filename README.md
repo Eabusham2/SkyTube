@@ -6,6 +6,8 @@ Paste a video, live stream or playlist, center its screen where you are looking,
 
 [Download releases](https://github.com/Eabusham2/SkyTube/releases) · [Report an issue](https://github.com/Eabusham2/SkyTube/issues) · [Feature checklist](docs/FEATURES.md) · [Account setup](docs/ACCOUNT_SETUP.md)
 
+**Verification status for 1.0.1:** Java/JavaScript suites, three-platform builds and native Linux Minecraft/Chromium rendering passed. Actual YouTube playback did **not** pass the two external sample checks on the review runner: one video was unavailable, and another remained buffering at time zero in all three provider settings. Their cause was not established, so real playback, audible output and real-stream/account features are not certified by these results. See the [recorded requirement audit](docs/AUDIT_1.0.1.md#recorded-external-playback-results) before treating the feature list as end-to-end verification.
+
 ## Install
 
 1. Install **Minecraft Java 1.21.11** with **Fabric Loader 0.19.3 or newer** and **Java 21**.

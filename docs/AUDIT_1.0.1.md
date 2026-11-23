@@ -41,4 +41,17 @@ The three provider menu entries use two hosts: `www.youtube.com` and `www.youtub
 
 Local automated verification passed 109 Java and 21 Node tests. Native game fixtures exercise rendering, input, command privacy and transport. A separate opt-in real-YouTube workflow checks native MCEF playback through all three provider selections; its actual result and diagnostic screenshots are authoritative, not merely its presence in the repository. See [TESTING.md](TESTING.md) for commands and the boundaries of each suite.
 
+## Recorded external playback results
+
+The [final implementation and test revision](https://github.com/Eabusham2/SkyTube/actions/runs/45098646504) passed the Linux, Windows and macOS builds plus the real Linux Chromium client test. Both external runs below also passed the 17 deterministic play/pause/mute bridge checks before their provider checks began.
+
+| Sample and run | Normal YouTube | No-Cookie | yout-ube destination |
+| --- | --- | --- | --- |
+| [Official IFrame API sample `M7lc1UVf-VE`](https://github.com/Eabusham2/SkyTube/actions/runs/45097169333) | YouTube displayed “Video unavailable. This content isn't available.”; time stayed at zero | Same result | Same result |
+| [Blender sample `aqz-KE-bpKQ`](https://github.com/Eabusham2/SkyTube/actions/runs/45098668627) | Correct ID and 635-second duration; remained buffering at time zero for 90 seconds | Same telemetry, with title/controls and buffering spinner visible | Same telemetry, with title/controls and buffering spinner visible |
+
+The actual iframe hosts matched the intended providers in both runs: `www.youtube.com`, then `www.youtube-nocookie.com` for each of the other two settings. Neither run passed the playing-state/advancing-clock check, so real-player pause, rewind and resume assertions were not reached. The available screenshots and logs did not establish why playback was blocked or stalled. The first result does not prove a global uploader restriction, and the second is not proof that every normal installation will fail or succeed. No verification prompt was bypassed and no account actions were performed.
+
+These results verify provider routing and the separately tested mod behavior; they do **not** certify end-to-end YouTube playback, audible output, live chat/DVR, real advertisements or authenticated posting. Those remain explicit verification gaps.
+
 Visibility remains an estimate. It does not measure the exact alpha silhouette of every block/entity, HUD, particle, cloud at a chosen nonzero opacity, or external shader effect. Live catch-up cannot change broadcaster latency. Real audible output, live chat/DVR, skippable ads and signed-in posting require the relevant player/account conditions. OAuth authorizes API actions and does not transfer a Premium session into Chromium. The pinned MCEF browser-isolation limitation remains documented in [SECURITY.md](SECURITY.md).
