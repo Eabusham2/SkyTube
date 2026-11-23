@@ -6,7 +6,7 @@ Paste a video, live stream or playlist, center its screen where you are looking,
 
 [Download releases](https://github.com/Eabusham2/SkyTube/releases) · [Report an issue](https://github.com/Eabusham2/SkyTube/issues) · [Feature checklist](docs/FEATURES.md) · [Account setup](docs/ACCOUNT_SETUP.md)
 
-**External playback check:** the GitHub-hosted runner receives YouTube's “Sign in to confirm you're not a bot” screen in all three provider settings. Ordinary WebM clips play in the same browser. At the project owner's request, this service-dependent test is optional for releases; required Java/JavaScript tests, three-platform builds and native Minecraft/Chromium checks remain enabled. Actual YouTube playback was not verified on that runner. See the [recorded requirement audit](docs/AUDIT_1.0.1.md#recorded-external-playback-results).
+**External playback check:** the GitHub-hosted runner receives YouTube's “Sign in to confirm you're not a bot” screen in all three provider settings. Ordinary WebM clips play in the same browser. At the project owner's request, this service-dependent test is optional for releases; required Java/JavaScript tests, Linux/Windows builds and native Minecraft/Chromium checks remain enabled. macOS compilation can be requested separately. Actual YouTube playback was not verified on that runner. See the [recorded requirement audit](docs/AUDIT_1.0.1.md#recorded-external-playback-results).
 
 ## Install
 
@@ -100,9 +100,9 @@ node --test tests/web/*.test.js
 
 On Windows, use `gradlew.bat build`. Production and source JARs are written to `build/libs/`. The Gradle wrapper pins its distribution checksum. Exact dependency versions and upstream provenance are in [DEPENDENCIES.md](docs/DEPENDENCIES.md).
 
-GitHub Actions builds and runs the Java and JavaScript suites on Linux, Windows and macOS. The repository also contains a graphical client smoke test and reproducible software OpenGL cloud-mask checks. See [TESTING.md](docs/TESTING.md) for the exact evidence, commands and limits of those tests.
+GitHub Actions builds and runs the Java and JavaScript suites on Linux and Windows. The manual `Build and test` workflow has an optional `macos` input for a macOS compilation/unit-test check. The repository also contains a graphical client smoke test and reproducible software OpenGL cloud-mask checks. See [TESTING.md](docs/TESTING.md) for the exact evidence, commands and limits of those tests.
 
-The release workflow validates the tag against `mod_version`, builds remapped JARs, requires native rendering and the three-platform test/build matrix to pass, checks JAR metadata and archive integrity, generates SHA-256 checksums, and publishes only after those gates succeed. Actual YouTube playback is an optional additional gate for manual releases. Create a version tag only after resolving required-check failures and changing `mod_version`, for example:
+The release workflow validates the tag against `mod_version`, builds remapped JARs, requires native rendering and the Linux build/tests to pass, checks JAR metadata and archive integrity, generates SHA-256 checksums, and publishes only after those gates succeed. Actual YouTube playback is an optional additional gate for manual releases. Create a version tag only after resolving required-check failures and changing `mod_version`, for example:
 
 ```bash
 git tag v1.0.1

@@ -1,6 +1,6 @@
 # Verification
 
-The release workflow requires successful production builds and unit/integration suites on Linux, Windows and macOS, plus native Minecraft/Chromium rendering. Actual YouTube playback is an optional additional gate because the GitHub-hosted runner received a provider sign-in challenge; the project owner explicitly authorized skipping that external-service check. A skipped check is not recorded as a playback pass. The actual per-commit results and logs are available under [GitHub Actions](https://github.com/Eabusham2/SkyTube/actions).
+The release workflow requires a successful Linux production build and unit/integration suites, plus native Minecraft/Chromium rendering. Ordinary CI also builds on Windows; macOS compilation is an optional manual compatibility check. Actual YouTube playback is an optional additional gate because the GitHub-hosted runner received a provider sign-in challenge; the project owner explicitly authorized skipping that external-service check. A skipped check is not recorded as a playback pass. The actual per-commit results and logs are available under [GitHub Actions](https://github.com/Eabusham2/SkyTube/actions).
 
 ## Automated suites
 
@@ -70,7 +70,7 @@ python3 tests/render/cloud_mask_smoke.py --client-jar /path/to/minecraft-1.21.11
 
 ## Cross-platform build and release
 
-`Build and test` runs the Java and JavaScript tests and remaps the production JAR on Ubuntu, Windows and macOS. It also calls the native graphical smoke workflow on Linux. The release workflow resolves the tag to one immutable commit, requires native rendering for that commit, and then runs the three-platform build. If the manual release enables real YouTube playback, its fresh completion report must also pass before the build starts. It checks archive integrity and embedded version metadata, creates SHA-256 checksums, and publishes only after those jobs succeed. The remote tag must still resolve to the verified commit immediately before creating a draft, uploading release assets, or publishing it. A moved or deleted tag fails the workflow.
+`Build and test` runs the Java and JavaScript tests and remaps the production JAR on Ubuntu and Windows. It also calls the native graphical smoke workflow on Linux. Enable the optional `macos` input when manually dispatching it to add a macOS compilation/unit-test job. The release workflow resolves the tag to one immutable commit, requires native rendering for that commit, and then builds the release JARs on Linux. The same JAR is distributed across platforms; release packaging does not repeat the optional macOS check. If the manual release enables real YouTube playback, its fresh completion report must also pass before the build starts. It checks archive integrity and embedded version metadata, creates SHA-256 checksums, and publishes only after those jobs succeed. The remote tag must still resolve to the verified commit immediately before creating a draft, uploading release assets, or publishing it. A moved or deleted tag fails the workflow.
 
 Compilation on a platform does not imply that its particular GPU, audio device or Google browser session was tested. Native graphical evidence is Linux/Mesa; Windows/macOS native playback, external shader packs and live account actions need their own runtime checks.
 

@@ -19,7 +19,7 @@ This audit checked the actual implementation, the 1.0.0 release, and the request
 
 | Request | Implementation and verification |
 | --- | --- |
-| Fabric Minecraft 1.21.11 | Exact mapped compilation, production remapping, three-platform build workflow and native Linux client gate. |
+| Fabric Minecraft 1.21.11 | Exact mapped compilation, production remapping, Linux/Windows builds, optional macOS compilation and a native Linux client gate. |
 | Center a video on the sky | Perspective plane; load/recenter at the current camera; fixed direction or Follow view. Actual camera-turn, follow-lock and recenter screenshots. |
 | Play/audio at 90% visible, adjustable | Default 0.90; frustum clipping plus 20×12 rendered block/entity samples. Real game fixtures and HTTP play/pause/mute commands at default and adjusted thresholds. |
 | Rewind and manual-pause hotkeys | Registered keys plus popup buttons; manual latch, delayed-event tests and native transport checks. |
@@ -34,7 +34,7 @@ This audit checked the actual implementation, the 1.0.0 release, and the request
 | Playlists/shuffle | Links and IDs, requested video/index/start time, previous/next and shuffle on/off; delayed and rapid-navigation tests. |
 | Screen toggle | Native V/menu toggle, render hiding, transport/mute checks and persisted settings. |
 | GitHub topics, description, README | Public Eabusham2/SkyTube metadata and documentation verified. |
-| Release workflow | One immutable tagged commit, tag/version matching, three-platform Java/Node builds, native client gate and archive/metadata/checksum validation. Live YouTube playback can be required for a manual release; it is optional by default at the project owner's request. |
+| Release workflow | One immutable tagged commit, tag/version matching, Linux Java/Node build, native client gate and archive/metadata/checksum validation. Live YouTube playback can be required for a manual release; it is optional by default at the project owner's request. |
 
 ## Provider facts and testing limits
 
