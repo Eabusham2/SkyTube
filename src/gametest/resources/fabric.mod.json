@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "skytube-smoke",
+  "version": "1.0.0",
+  "name": "SkyTube client smoke test",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-client-gametest": ["dev.eyad.skytube.test.SkyTubeSmokeTest"]
+  },
+  "depends": {
+    "skytube": "*",
+    "fabric-client-gametest-api-v1": "*"
+  }
+}

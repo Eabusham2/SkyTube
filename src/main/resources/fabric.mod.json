@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "skytube",
+  "version": "${version}",
+  "name": "SkyTube",
+  "description": "A YouTube cinema in your Minecraft sky, with visibility-aware playback, playlists, live chat and hotkeys.",
+  "authors": ["Eyad (Eabusham2)"],
+  "contact": {
+    "homepage": "https://github.com/Eabusham2/SkyTube",
+    "sources": "https://github.com/Eabusham2/SkyTube",
+    "issues": "https://github.com/Eabusham2/SkyTube/issues"
+  },
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {"client": ["dev.eyad.skytube.client.SkyTubeClient"]},
+  "mixins": ["skytube.mixins.json"],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "~${minecraft_version}",
+    "java": ">=21",
+    "fabric-api": ">=${fabric_api_version}",
+    "mcef-modern": ">=${mcef_version}"
+  }
+}

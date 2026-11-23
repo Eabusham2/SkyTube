@@ -1,0 +1,91 @@
+plugins {
+    id 'fabric-loom' version "${loom_version}"
+}
+
+group = 'dev.eyad.skytube'
+version = mod_version
+base.archivesName = "skytube-fabric-${minecraft_version}"
+
+repositories {
+    mavenCentral()
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'MCEF Modern'
+                url = 'https://maven.dimaskama.net/releases'
+            }
+        }
+        filter { includeGroup 'net.dimaskama' }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+    modImplementation "net.dimaskama:mcef-modern:${mcef_version}"
+    // The matching runtime API is nested inside the separately installed MCEF mod.
+    compileOnly "me.friwi:jcef-api:${jcef_api_version}"
+
+    testImplementation platform('org.junit:junit-bom:5.12.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+
+processResources {
+    def modProperties = [
+            version: project.version,
+            minecraft_version: minecraft_version,
+            loader_version: loader_version,
+            fabric_api_version: fabric_api_version,
+            mcef_version: mcef_version
+    ]
+    inputs.properties(modProperties)
+    filesMatching('fabric.mod.json') { expand(modProperties) }
+}
+
+jar {
+    from('LICENSE') { rename { 'LICENSE_SkyTube' } }
+}
+
+tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+
+test {
+    useJUnitPlatform()
+}
+
+loom.mods {
+    skytube { sourceSet sourceSets.main }
+}
+
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = 'skytube-smoke'
+        enableGameTests = false
+        enableClientGameTests = true
+    }
+}
+
+loom.runs.clientGameTest {
+    property 'fabric.client.gametest.modid', 'skytube-smoke'
+    if (providers.gradleProperty('smokeTextureOnly').map { it.toBoolean() }.getOrElse(false)) {
+        property 'skytube.smoke.textureOnly', 'true'
+    }
+}
+
+check.dependsOn tasks.named('gametestClasses')
