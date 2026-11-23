@@ -16,12 +16,25 @@ import javax.imageio.ImageIO;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.client.CloudStatus;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ChunkResult;
+import net.minecraft.server.level.TicketType;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.gamerules.GameRules;
 
 public final class SkyTubeSmokeTest implements FabricClientGameTest {
+    private static volatile boolean creatingTestWorld;
+
+    static {
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            if (creatingTestWorld && !server.isDedicatedServer()) prepareSpawn(server);
+        });
+    }
+
     private static final String FIXTURE = "data:text/html;base64," + Base64.getEncoder().encodeToString(
             "<body style='margin:0;background:linear-gradient(to right,magenta 50%,cyan 50%)'></body>"
                     .getBytes(StandardCharsets.UTF_8));
@@ -115,9 +128,30 @@ public final class SkyTubeSmokeTest implements FabricClientGameTest {
 
     static TestSingleplayerContext createWorld(ClientGameTestContext context) {
         // Fabric fixes the terrain seed, but vanilla still picks a random player spawn within its radius.
-        return context.worldBuilder()
-                .adjustSettings(settings -> settings.getGameRules().set(GameRules.RESPAWN_RADIUS, 0, null))
-                .create();
+        creatingTestWorld = true;
+        try {
+            return context.worldBuilder()
+                    .adjustSettings(settings -> settings.getGameRules().set(GameRules.RESPAWN_RADIUS, 0, null))
+                    .create();
+        } finally {
+            creatingTestWorld = false;
+        }
+    }
+
+    private static void prepareSpawn(MinecraftServer server) {
+        var level = server.overworld();
+        var spawn = new ChunkPos(level.getRespawnData().pos());
+        // Use the same expiring ticket and radius as vanilla's PrepareSpawnTask before test ticks share its task budget.
+        long start = System.nanoTime();
+        SkyTubeClient.LOGGER.info("Preparing the 49 test spawn chunks around {}", spawn);
+        var loaded = level.getChunkSource().addTicketAndLoadWithRadius(TicketType.PLAYER_SPAWN, spawn, 3);
+        long deadline = start + Duration.ofSeconds(90).toNanos();
+        server.managedBlock(() -> loaded.isDone() || System.nanoTime() >= deadline);
+        if (!loaded.isDone()) throw new AssertionError("Timed out preparing the 49 test spawn chunks around " + spawn);
+        if (!(loaded.join() instanceof ChunkResult<?> result) || !result.isSuccess()) {
+            throw new AssertionError("Minecraft failed to load the test spawn chunks around " + spawn);
+        }
+        SkyTubeClient.LOGGER.info("Prepared the 49 test spawn chunks in {} ms", (System.nanoTime() - start) / 1_000_000);
     }
 
     private static void openBrowserFixture(ClientGameTestContext context, SkyTubeClient mod) {

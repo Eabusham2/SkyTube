@@ -30,6 +30,8 @@ The explicit Node path matters: running bare `node --test` after a Gradle build 
 
 `src/gametest` is a **separate test mod**. It is not included in the production or source distribution JAR.
 
+Before the test player joins, the integrated server prepares the 49 chunks around its fixed spawn using Minecraft's expiring player-spawn ticket. It processes pending chunk work on the server thread and fails if preparation exceeds 90 seconds or Minecraft reports a chunk-loading error. Fabric then waits for the player to join and the client to render the world.
+
 The normal `runClientGameTest` launches the actual Minecraft 1.21.11 client and creates a singleplayer world. It opens the popup using the registered hotkey, navigates Player/Display/Account and Interact/Back using the actual buttons, checks minimum-size widget bounds, and tests the real command-suggestion provider with both a private draft and an ordinary server command. It initializes the pinned MCEF Modern browser and navigates it to a local magenta/cyan HTML fixture. Actual screenshots must contain both halves under Fancy and Fast cloud modes and neither half when the display is hidden. The release gate always uses the native MCEF path.
 
 The same game test adds near, distant, partial and non-rendered roof fixtures, an entity, camera turns, Follow view locking, and recentering. It compares both GPU readback and the production visibility calculation. A test-only HTTP consumer then reads the actual production loopback commands to check playback/mute at 90% and adjusted thresholds, manual-pause persistence, focus changes, covering menus, screen power and world-exit browser release. These transport checks verify what the mod commands; they do not replace an audible-output check.
