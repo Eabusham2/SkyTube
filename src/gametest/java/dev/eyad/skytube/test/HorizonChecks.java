@@ -38,7 +38,7 @@ final class HorizonChecks {
             world.getServer().runOnServer(server -> server.getPlayerList().getPlayers().getFirst().startFallFlying());
             context.waitFor(mc -> mc.player.isFallFlying(), 100);
 
-            context.getInput().pressKey(GLFW.GLFW_KEY_G);
+            context.getInput().pressKey(GLFW.GLFW_KEY_H);
             context.waitFor(mc -> mod.config().followView && mod.renderer().visibleFraction() == 1, 200);
             checkBottomEdge(context, "elytra-level-default", 54, 0);
             bridge.expect("level Elytra flight at default width", true, false);
@@ -54,17 +54,11 @@ final class HorizonChecks {
             }
             look(context, -145, 12);
             context.waitFor(mc -> mod.renderer().visibleFraction() == 0, 200);
-            context.getInput().pressKey(GLFW.GLFW_KEY_H);
-            context.waitTicks(8);
-            if (context.computeOnClient(mc -> mod.config().followView || mod.renderer().visibleFraction() != 0)) {
-                throw new AssertionError("A repeated H moved the pinned screen to the new heading");
-            }
             bridge.expect("turned away from the locked horizon", false, true);
-            context.getInput().pressKey(GLFW.GLFW_KEY_G);
-            context.getInput().pressKey(GLFW.GLFW_KEY_G);
+            context.getInput().pressKey(GLFW.GLFW_KEY_H);
             context.waitFor(mc -> mod.config().followView && mod.renderer().visibleFraction() == 1, 200);
             checkBottomEdge(context, "elytra-unlocked-new-heading", 54, 12);
-            bridge.expect("G follows the new heading at the horizon", true, false);
+            bridge.expect("H resumes following at the new horizon heading", true, false);
 
             resize(context, mod, 15);
             checkBottomEdge(context, "elytra-minimum-width", 15, 12);
@@ -72,7 +66,7 @@ final class HorizonChecks {
             context.waitFor(mc -> !mod.config().followView, 20);
             resize(context, mod, 110);
             checkBottomEdge(context, "elytra-lock-resized-maximum", 110, 12);
-            context.getInput().pressKey(GLFW.GLFW_KEY_G);
+            context.getInput().pressKey(GLFW.GLFW_KEY_H);
             context.waitFor(mc -> mod.config().followView, 20);
             context.runOnClient(mc -> {
                 mod.config().angularWidth = new ModConfig().angularWidth;

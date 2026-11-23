@@ -118,8 +118,7 @@ public final class ControlScreen extends Screen {
         button("Interact", 2, 3, () -> minecraft.setScreen(new InteractionScreen(mod)))
                 .setTooltip(Tooltip.create(Component.literal("Click the real player: consent, ad skipping, captions and chat.")));
         nextRow();
-        button("Center in view", 0, 2, mod::center);
-        toggle("Sky screen", c.screenOn, 1, 2, () -> c.screenOn = !c.screenOn);
+        toggle("Sky screen", c.screenOn, 0, 1, () -> c.screenOn = !c.screenOn);
         nextRow();
     }
     private void displayPage() {
@@ -135,9 +134,9 @@ public final class ControlScreen extends Screen {
         slider("Screen width", 0, 2, (c.angularWidth - 15) / 95, v -> c.angularWidth = 15 + v * 95, v -> Math.round(15 + v * 95) + "°");
         slider("Volume", 1, 2, c.volume, v -> c.volume = v, v -> Math.round(v * 100) + "%");
         nextRow();
-        button("Lock position", 0, 3, () -> { mod.setFollowView(false); rebuildWidgets(); }).active = c.followView;
-        button("Unlock (follow)", 1, 3, () -> { mod.setFollowView(true); rebuildWidgets(); }).active = !c.followView;
-        toggle("Live chat", c.showChat, 2, 3, () -> c.showChat = !c.showChat);
+        button(c.followView ? "Lock position" : "Unlock (follow)", 0, 2,
+                () -> { mod.toggleLock(); rebuildWidgets(); });
+        toggle("Live chat", c.showChat, 1, 2, () -> c.showChat = !c.showChat);
         nextRow();
         toggle("Live stream", c.live, 0, 3, () -> c.live = !c.live);
         toggle("Catch-up", c.lowLatency, 1, 3, () -> c.lowLatency = !c.lowLatency);

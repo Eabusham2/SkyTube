@@ -55,7 +55,7 @@ public final class SkyTubeClient implements ClientModInitializer {
     private boolean inferredLive;
     private String message = "";
     private long messageUntil;
-    private KeyMapping menu, pause, rewind, skipAd, center, lock, unlock, toggle, faster, slower;
+    private KeyMapping menu, pause, rewind, skipAd, lock, toggle, faster, slower;
 
     @Override public void onInitializeClient() {
         instance = this;
@@ -73,9 +73,7 @@ public final class SkyTubeClient implements ClientModInitializer {
         pause = key("pause", GLFW.GLFW_KEY_U, category);
         rewind = key("rewind", GLFW.GLFW_KEY_J, category);
         skipAd = key("skip_ad", GLFW.GLFW_KEY_N, category);
-        center = key("center", GLFW.GLFW_KEY_K, category);
         lock = key("lock", GLFW.GLFW_KEY_H, category);
-        unlock = key("unlock", GLFW.GLFW_KEY_G, category);
         toggle = key("toggle", GLFW.GLFW_KEY_V, category);
         faster = key("faster", GLFW.GLFW_KEY_RIGHT_BRACKET, category);
         slower = key("slower", GLFW.GLFW_KEY_LEFT_BRACKET, category);
@@ -115,9 +113,7 @@ public final class SkyTubeClient implements ClientModInitializer {
         while (pause.consumeClick()) toggleManualPause();
         while (rewind.consumeClick()) rewind();
         while (skipAd.consumeClick()) skipAd();
-        while (center.consumeClick()) center();
-        while (lock.consumeClick()) setFollowView(false);
-        while (unlock.consumeClick()) setFollowView(true);
+        while (lock.consumeClick()) toggleLock();
         while (toggle.consumeClick()) toggleScreen();
         while (faster.consumeClick()) changeRate(1);
         while (slower.consumeClick()) changeRate(-1);
@@ -231,15 +227,9 @@ public final class SkyTubeClient implements ClientModInitializer {
         else notifyUser("The YouTube player is still loading; use Interact to check it.");
     }
     public void toggleScreen() { config.screenOn = !config.screenOn; settingsChanged(); }
-    public void center() {
+    public void toggleLock() {
         var camera = Minecraft.getInstance().gameRenderer.getMainCamera();
-        config.captureView(camera.yRot(), camera.xRot());
-        save();
-    }
-    public void setFollowView(boolean enabled) {
-        if (config.followView == enabled) return;
-        var camera = Minecraft.getInstance().gameRenderer.getMainCamera();
-        config.setFollowView(enabled, camera.yRot(), camera.xRot());
+        config.setFollowView(!config.followView, camera.yRot(), camera.xRot());
         save();
     }
     public void changeRate(int direction) {

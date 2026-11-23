@@ -27,11 +27,11 @@ The browser tests execute the shipped JavaScript against iframe and DOM fixtures
 
 ## Native Minecraft and MCEF
 
-The separate `src/gametest` mod launches Minecraft 1.21.11, prepares a singleplayer world and opens the actual controls. It initializes MCEF Modern and loads a local two-color HTML page. Framebuffer assertions cover the sky screen under Fast and Fancy clouds, screen power, centering/follow view, terrain and entity occlusion, lava and water. The fixture also exercises menu navigation, widget bounds, Account draft resizing, command-suggestion privacy and browser cleanup on world exit.
+The separate `src/gametest` mod launches Minecraft 1.21.11, prepares a singleplayer world and opens the actual controls. It initializes MCEF Modern and loads a local two-color HTML page. Framebuffer assertions cover the sky screen under Fast and Fancy clouds, screen power, position lock/follow view, terrain and entity occlusion, lava and water. The fixture also exercises menu navigation, widget bounds, Account draft resizing, command-suggestion privacy and browser cleanup on world exit.
 
 Playback bridge assertions check the exact 90% boundary and adjusted thresholds, manual-pause persistence, focus and covering menus, mute/pause, loading-control feedback and rapid ready-player commands. Actual slider clicks must save the displayed 0%, 90% and 100% values where applicable.
 
-An equipped Elytra flight at high altitude checks the entire bottom edge against the projected horizon at 15°, 54° and 110° widths. Physical H/G/K inputs exercise locking, unlocking and recentering. Looking down until the video leaves the viewport must pause and mute by default. Turning off automatic visibility pause must allow playback at 0% visibility while U, V, focus, covering menus and world-exit cleanup retain their behavior.
+An equipped Elytra flight at high altitude checks the entire bottom edge against the projected horizon at 15°, 54° and 110° widths. Repeated physical H inputs toggle locking and following, including locking a new direction after unlocking. G and K must not change placement. The single Display button exercises both states. Looking down until the video leaves the viewport must pause and mute by default. Turning off automatic visibility pause must allow playback at 0% visibility while U, V, focus, covering menus and world-exit cleanup retain their behavior.
 
 On Linux with Xvfb, GTK, OpenGL and Chromium's platform libraries installed:
 

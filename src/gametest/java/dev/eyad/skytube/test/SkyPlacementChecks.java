@@ -10,7 +10,9 @@ import javax.imageio.ImageIO;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.client.CloudStatus;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.components.AbstractSliderButton;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.input.MouseButtonInfo;
@@ -29,6 +31,11 @@ final class SkyPlacementChecks {
         world.getServer().runCommand("fill -3 148 -3 3 148 3 stone");
         world.getServer().runCommand("tp @p 0.5 149 0.5 0 -90");
         context.runOnClient(mc -> {
+            var placementKey = KeyMapping.get("key.skytube.lock");
+            if (placementKey == null || placementKey.getDefaultKey().getValue() != GLFW.GLFW_KEY_H
+                    || KeyMapping.get("key.skytube.unlock") != null || KeyMapping.get("key.skytube.center") != null) {
+                throw new AssertionError("Expected one placement key mapping with H as its default");
+            }
             mc.options.renderDistance().set(4);
             mc.options.cloudStatus().set(CloudStatus.OFF);
             mc.options.pauseOnLostFocus = false;
@@ -121,7 +128,6 @@ final class SkyPlacementChecks {
             mc.player.setYRot(0);
         });
         context.waitTicks(4);
-        context.getInput().pressKey(GLFW.GLFW_KEY_K);
         context.runOnClient(mc -> mc.player.setYRot(120));
         check(context, mod, "following-turn", 1, 1, true);
         context.getInput().pressKey(GLFW.GLFW_KEY_H);
@@ -129,12 +135,20 @@ final class SkyPlacementChecks {
         check(context, mod, "locked-at-last-view", 1, 1, true);
         context.runOnClient(mc -> mc.player.setYRot(-60));
         check(context, mod, "turned-away", 0, 0, false);
-        context.getInput().pressKey(GLFW.GLFW_KEY_K);
-        check(context, mod, "recentered", 1, 1, true);
-        if (context.computeOnClient(mc -> mod.config().followView)) {
-            throw new AssertionError("K changed locked placement to follow mode");
+        for (int formerKey : new int[]{GLFW.GLFW_KEY_G, GLFW.GLFW_KEY_K}) {
+            context.getInput().pressKey(formerKey);
+            context.waitTicks(4);
+            if (context.computeOnClient(mc -> mod.config().followView || mod.config().yaw != 120
+                    || mod.renderer().visibleFraction() != 0)) {
+                throw new AssertionError("A retired placement key moved the locked screen: " + (char) formerKey);
+            }
         }
-        bridge.expect("recentered", true, false);
+        context.getInput().pressKey(GLFW.GLFW_KEY_H);
+        context.waitFor(mc -> mod.config().followView, 20);
+        check(context, mod, "following-new-heading", 1, 1, true);
+        bridge.expect("following the new heading", true, false);
+        context.getInput().pressKey(GLFW.GLFW_KEY_H);
+        context.waitFor(mc -> !mod.config().followView && mod.config().yaw == -60, 20);
         context.runOnClient(mc -> mc.setWindowActive(false));
         bridge.expect("window focus lost", false, true);
         context.runOnClient(mc -> mc.setWindowActive(true));
@@ -164,9 +178,9 @@ final class SkyPlacementChecks {
     private static void checkVisibilitySlider(ClientGameTestContext context, TestSingleplayerContext world,
                                               SkyTubeClient mod, PlaybackBridgeProbe bridge) {
         context.setScreen(() -> new ControlScreen(mod, 1));
-        context.clickScreenButton("Lock position");
+        clickPlacementButton(context, "Lock position");
         context.waitFor(mc -> !mod.config().followView, 20);
-        context.clickScreenButton("Unlock (follow)");
+        clickPlacementButton(context, "Unlock (follow)");
         context.waitFor(mc -> mod.config().followView, 20);
         double selected = context.computeOnClient(mc -> {
             mc.screen.resize(320, 240);
@@ -191,6 +205,18 @@ final class SkyPlacementChecks {
         if (selected != .90) throw new AssertionError("The visibility slider saved " + selected + " for 90%");
         world.getServer().runCommand("fill 0 178 -10 0 178 10 air");
         waitForBlock(context, world, 178, Blocks.AIR);
+    }
+
+    private static void clickPlacementButton(ClientGameTestContext context, String label) {
+        context.runOnClient(mc -> {
+            var labels = mc.screen.children().stream().filter(Button.class::isInstance).map(Button.class::cast)
+                    .map(button -> button.getMessage().getString())
+                    .filter(text -> text.equals("Lock position") || text.equals("Unlock (follow)")).toList();
+            if (labels.size() != 1 || !labels.getFirst().equals(label)) {
+                throw new AssertionError("Expected one placement button labeled " + label + ", found " + labels);
+            }
+        });
+        context.clickScreenButton(label);
     }
 
     private static void clickPercentage(Screen screen, String label, int xOffset, int percent) {

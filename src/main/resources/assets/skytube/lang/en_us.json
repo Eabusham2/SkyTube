@@ -4,9 +4,7 @@
   "key.skytube.pause": "Play / manually pause",
   "key.skytube.rewind": "Rewind video",
   "key.skytube.skip_ad": "Skip ad (when available)",
-  "key.skytube.center": "Center video in current view",
-  "key.skytube.lock": "Lock video at its current sky position",
-  "key.skytube.unlock": "Unlock video to follow your view",
+  "key.skytube.lock": "Toggle position lock / follow view",
   "key.skytube.toggle": "Show / hide sky screen",
   "key.skytube.faster": "Increase playback speed",
   "key.skytube.slower": "Decrease playback speed"

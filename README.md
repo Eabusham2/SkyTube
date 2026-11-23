@@ -22,7 +22,7 @@ The first video initializes MCEF asynchronously and may download its Chromium na
 1. Look toward the part of the sky where you want the video.
 2. Press **Y**, paste a YouTube link, choose a provider if desired, and click **Load**.
 3. Close the menu. The video starts when the configured fraction is visible.
-4. The screen follows your view by default. Press **H** to lock its current sky position, **G** to unlock and follow again, or **K** to recenter a locked screen.
+4. The screen follows your view by default. Press **H** to lock its current sky position; press **H** again to unlock and follow your view.
 5. Use **Interact** in the Player page to click YouTube's own player, consent dialog, captions, controls and chat sidebar.
 
 Supported inputs include ordinary watch links, `youtu.be`, Shorts, `/live/`, embed links, video IDs, playlist links and playlist IDs. Start times such as `?t=1m30s` are preserved. A link containing a video and playlist starts at that video when it belongs to the playlist.
@@ -37,13 +37,11 @@ Every key can be changed in **Options → Controls → Key Binds → SkyTube**.
 | **U** | Manually pause / resume |
 | **J** | Rewind, initially 10 seconds |
 | **N** | Click YouTube's available **Skip Ad** button |
-| **K** | Center the sky video on the current view |
-| **H** | Lock the current sky position |
-| **G** | Unlock and follow the current view |
+| **H** | Toggle position lock / follow view |
 | **V** | Toggle the sky screen; hidden screen stops playback and audio |
 | **[** / **]** | Decrease / increase playback speed |
 
-The popup has **Player**, **Display**, and **Account** pages. It includes Load, provider selection, play/pause, rewind, ad skip, previous/next, shuffle, speed, Go live, Interact, centering, screen toggle, volume, visibility threshold, automatic visibility pause, screen size, cloud opacity, position lock/unlock, live mode and catch-up. Settings save automatically.
+The popup has **Player**, **Display**, and **Account** pages. It includes Load, provider selection, play/pause, rewind, ad skip, previous/next, shuffle, speed, Go live, Interact, screen toggle, volume, visibility threshold, automatic visibility pause, screen size, cloud opacity, a position-lock toggle, live mode and catch-up. Settings save automatically.
 
 Rewind, Previous, Next and Go live require the chosen player to finish loading. If you press one of these controls too early, a message says the action did not run and asks you to retry when ready.
 
@@ -67,7 +65,7 @@ The display is an actual perspective-projected sky plane, rendered before terrai
 
 **Y → Display → Screen width** adjusts its angular width from **15° to 110°**, with **54°** as the default. Height scales proportionally, and the horizon limit adapts to the selected size. The limit follows the horizontal horizon; hills, buildings and entities can still obscure the video and affect its measured visibility.
 
-**Lock position** pins the currently displayed direction. It still travels with you, so walking or flying does not leave it behind. **Unlock (follow)** resumes following your view. Repeated Lock presses and loading another video keep the same position. Settings from version 1.0.6 or earlier switch to following once during upgrade; later lock choices are saved normally.
+**H** is the single position-lock hotkey: press it to pin the currently displayed direction, then press it again to resume following your view. The Display page has one matching button that changes between **Lock position** and **Unlock (follow)**. A locked screen still travels with you, so walking or flying does not leave it behind, and loading another video keeps its position. To choose a new position, unlock, look where you want it and lock again. Settings from version 1.0.6 or earlier switch to following once during upgrade; later lock choices are saved normally.
 
 Terrain and entities render naturally in front of the screen. The optional chat panel is appended on the right; the **video itself remains centered** until constrained by the horizon.
 
